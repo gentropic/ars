@@ -1,0 +1,33 @@
+{
+  "name": "@gcu/ars",
+  "version": "0.1.0",
+  "description": "Augmented Reference System — a shared, classed spatial coordinate frame from printed fiducial markers. Browser-native, zero-cloud. Pure contract core.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/main.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gentropic/ars.git"
+  },
+  "keywords": [
+    "ar",
+    "webxr",
+    "aruco",
+    "fiducial",
+    "augmented-reality",
+    "coordinate-frame",
+    "gcu"
+  ],
+  "author": "Arthur Endlein Correia",
+  "homepage": "https://gentropic.org"
+}

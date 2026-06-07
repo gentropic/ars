@@ -38,3 +38,5 @@ export {
 export { symmetricEig } from './eigen.js';
 
 export { solveRigid, solveDatum, markerCorners } from './solve.js';
+
+export { solveLayout } from './discovered.js';

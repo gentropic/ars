@@ -1,0 +1,10 @@
+# Our own sources: stable LF in the working tree across platforms.
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+
+# Vendored third-party files are byte-pinned (sha256 in vendor/MANIFEST.json).
+# Listed LAST so this wins over the *.js rule above: never apply EOL conversion,
+# or a checkout would diverge from the recorded hashes.
+vendor/** -text

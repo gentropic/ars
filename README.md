@@ -60,18 +60,28 @@ const references = classGate(detections).map((d) => ({
 
 ## Roadmap
 
-- **Datum solve (§6)** — fuse a constellation of ≥2 reference correspondences into a
-  robust, drift-corrected `T_rig`; surveyed and discovered modes; the planar-ambiguity
-  rule. The next slice (algorithm choice — pose-averaging vs Kabsch/Umeyama on marker
-  geometry — TBD).
-- **Detector wrapper (§3)** — vendored js-aruco2 behind the pose interface; verify the
-  `POS.Pose` two-candidate sign convention and pin it (§5.2 note).
-- **Device edges** — the WebXR `camera-access` frame grab (§7.4, the one *contingent*
-  dependency, validated on-device first) and the registration/render path (§5.4, §10).
-- **Sync (§9)** — authority/viewport session over `@gcu/sync` (already built); deferred
-  here on purpose — it's the low-risk, understood half.
+Done:
 
-Shipped as a standalone viewer **and** an Auditable Works surface from this one repo;
+- **Datum solve (§6)** — Horn's quaternion constellation registration; **surveyed** and
+  **discovered** (§6.2) modes; the planar-ambiguity rule (corner-point fit, ≥2 markers).
+- **Path B — magic-window** (`web/`) — vendored js-aruco2 detection + POSIT, the §5.2
+  detector→mat convention **pinned and webcam-verified** (a `diag(1,1,-1)` conjugation
+  with y-up corners), three.js overlay aligned to the detection frame.
+
+Next:
+
+- **ChArUco intrinsics (§3.2)** — recover real focal/principal point for accurate metric
+  depth (the current focal = frame-width is a heuristic; orientation is already correct).
+- **Path A — WebXR** — `immersive-ar` + the `camera-access` spike (§7.4, the one
+  *contingent* dependency, validated on-device first) and per-rig registration (§5.4).
+- **Anchors (optional, Path A)** — WebXR *local* anchors to steady the datum between
+  marker sightings (§7.3) and device-local *persistent* anchors to restore it across
+  sessions (§14); config-gated + feature-detected, degrading to marker re-grounding.
+  *Cloud anchors are out of scope* — no WebXR API exists, and ars is zero-cloud by
+  design: the printed datum + peer sync are the cross-device shared reference.
+- **Sync (§9)** — authority/viewport session over `@gcu/sync` (already built).
+
+To ship as a standalone viewer **and** an Auditable Works surface from this one repo;
 deployed over GitHub Pages (https = the secure context WebXR/`getUserMedia` require).
 
 ## Develop

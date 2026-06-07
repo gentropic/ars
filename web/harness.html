@@ -107,12 +107,13 @@ function loop() {
   if (!W || !H) return;
   if (work.width !== W) { work.width = W; work.height = H; }
 
-  // size the GL canvas/camera to the video
-  const cw = glCanvas.clientWidth, ch = glCanvas.clientHeight;
-  if (renderer.domElement.width !== cw || renderer.domElement.height !== ch) renderer.setSize(cw, ch, false);
+  // Render into a buffer the SAME size as the detection frame, so the GL canvas and
+  // the video share intrinsic geometry and object-fit:cover crops them identically —
+  // otherwise markers detected in native-frame coords misalign with the cropped video.
   const focalPx = W; // heuristic focal length (frame width); refine with ChArUco later
-  camera.fov = 2 * Math.atan((H / 2) / focalPx) * 180 / Math.PI;
+  if (renderer.domElement.width !== W || renderer.domElement.height !== H) renderer.setSize(W, H, false);
   camera.aspect = W / H;
+  camera.fov = 2 * Math.atan((H / 2) / focalPx) * 180 / Math.PI; // match the POSIT camera model
   camera.updateProjectionMatrix();
 
   wctx.drawImage(video, 0, 0, W, H);

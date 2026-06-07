@@ -44,8 +44,17 @@ export function markerPose(corners, { sizeMeters, focalPx, width, height }) {
   if (!pose) return null;
 
   const R = pose.bestRotation, t = pose.bestTranslation;
-  const r9 = [R[0][0], R[0][1], R[0][2], R[1][0], R[1][1], R[1][2], R[2][0], R[2][1], R[2][2]];
-  const m = mat4.fromRT(r9, t);
-  m[2] = -m[2]; m[6] = -m[6]; m[10] = -m[10]; m[14] = -m[14]; // diag(1,1,-1): Z row → mat space
+
+  // CV → three.js / mat space. With corners pre-flipped to y-up (above), POSIT's frame
+  // is left-handed (+X right, +Y up, +Z INTO the scene); three.js is right-handed
+  // (+Z toward the viewer). The handedness flip on the Z axis must be a CONJUGATION
+  // S·R·S (S = diag(1,1,-1)) so the rotation stays PROPER (det +1) — a one-sided S·R
+  // is a reflection (det −1) and mirrors the result. Translation just takes S·t.
+  // (This is the §5.2 empirical pin; if it's still wrong, the knob is S: try
+  // diag(1,-1,-1) here, or drop the y-up pre-flip above.)
+  const S = [1, 1, -1];
+  const Rc = new Array(9);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) Rc[i * 3 + j] = R[i][j] * S[i] * S[j];
+  const m = mat4.fromRT(Rc, [t[0] * S[0], t[1] * S[1], t[2] * S[2]]);
   return { matrix: m, error: pose.bestError, altError: pose.alternativeError };
 }

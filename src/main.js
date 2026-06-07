@@ -34,3 +34,7 @@ export {
   resolveClass,
   resolveOrigin,
 } from './manifest.js';
+
+export { symmetricEig } from './eigen.js';
+
+export { solveRigid, solveDatum, markerCorners } from './solve.js';

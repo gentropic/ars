@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ars — printable ARUCO_MIP_36h12 markers</title>
+<!-- js-aruco2 (classic scripts) — AR.Dictionary.generateSVG is the canonical renderer -->
+<script src="../vendor/js-aruco2/cv.js"></script>
+<script src="../vendor/js-aruco2/aruco.js"></script>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 1.5rem; }
+  h1 { font-size: 1.1rem; }
+  .controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: end; margin: 1rem 0 1.5rem; }
+  label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+  input { font: inherit; padding: 4px 6px; }
+  button { font: inherit; padding: 6px 12px; cursor: pointer; }
+  .sheet { display: flex; flex-wrap: wrap; gap: 1.5rem; }
+  .card { display: flex; flex-direction: column; align-items: center; page-break-inside: avoid; }
+  .card svg { display: block; }
+  .card .cap { font-size: 11px; margin-top: 4px; font-family: ui-monospace, monospace; }
+  .note { color: #888; max-width: 60ch; }
+  @media print {
+    .controls, .note, h1 { display: none; }
+    body { margin: 0; }
+    .sheet { gap: 2cm; }
+    .card { margin: 1cm; }
+  }
+</style>
+</head>
+<body>
+<h1>ars — printable ARUCO_MIP_36h12 markers</h1>
+<p class="note">
+  Enter marker ids (the dictionary's default; references are ids 0–49). “Size” is the
+  measurable edge of the black square — the value you put in the manifest and pass as
+  the marker size. Print at 100% scale (no “fit to page”), then measure a printed
+  marker and correct the size if your printer rescaled. Keep clear white space around
+  each marker (a quiet zone) — extra page margin is fine.
+</p>
+<div class="controls">
+  <label>Marker ids (comma-separated)
+    <input id="ids" value="0, 1, 2" size="24">
+  </label>
+  <label>Size (mm, black-square edge)
+    <input id="size" type="number" value="80" min="10" max="400" step="1">
+  </label>
+  <button id="gen">Generate</button>
+  <button id="print">Print…</button>
+</div>
+<div class="sheet" id="sheet"></div>
+
+<script>
+  const dict = new AR.Dictionary('ARUCO_MIP_36h12');
+  const maxId = dict.codeList.length - 1;
+  const $ = (s) => document.querySelector(s);
+
+  function render() {
+    const sizeMM = Math.max(10, Number($('#size').value) || 80);
+    const ids = $('#ids').value.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isInteger(n));
+    const sheet = $('#sheet');
+    sheet.textContent = '';
+    for (const id of ids) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      if (id < 0 || id > maxId) {
+        card.innerHTML = `<div class="cap">id ${id} out of range (0–${maxId})</div>`;
+        sheet.appendChild(card);
+        continue;
+      }
+      // generateSVG: 10×10 viewBox, the black square (the measurable marker) is 8 units.
+      // So physical svg width = sizeMM × 10/8 to make the black edge exactly sizeMM.
+      const svg = dict.generateSVG(id);
+      const wrap = document.createElement('div');
+      wrap.innerHTML = svg;
+      const el = wrap.firstElementChild;
+      const cssW = (sizeMM * 10 / 8).toFixed(2);
+      el.setAttribute('width', cssW + 'mm');
+      el.setAttribute('height', cssW + 'mm');
+      el.style.shapeRendering = 'crispEdges';
+      card.appendChild(el);
+      const cap = document.createElement('div');
+      cap.className = 'cap';
+      const role = id <= 49 ? 'reference' : id <= 99 ? 'object' : id <= 249 ? 'content' : '—';
+      cap.textContent = `ARUCO_MIP_36h12 · id ${id} · ${sizeMM}mm · ${role}`;
+      card.appendChild(cap);
+      sheet.appendChild(card);
+    }
+  }
+
+  $('#gen').addEventListener('click', render);
+  $('#print').addEventListener('click', () => window.print());
+  render();
+</script>
+</body>
+</html>

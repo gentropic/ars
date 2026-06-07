@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>ars — magic-window harness</title>
+<!-- js-aruco2 classic scripts FIRST (set AR / CV / POS / SVD globals), then our ESM module -->
+<script src="../vendor/js-aruco2/cv.js"></script>
+<script src="../vendor/js-aruco2/aruco.js"></script>
+<script src="../vendor/js-aruco2/svd.js"></script>
+<script src="../vendor/js-aruco2/posit1.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font: 13px/1.4 ui-monospace, monospace; color: #d8dee9; }
+  #stage { position: fixed; inset: 0; }
+  #video, #gl { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #gl { pointer-events: none; }
+  #hud { position: fixed; left: 8px; top: 8px; z-index: 10; background: rgba(20,24,30,.78); padding: 8px 10px; border-radius: 6px; max-width: 70vw; white-space: pre-wrap; }
+  #hud b { color: #c66a2e; }
+  #start { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 20; padding: 12px 18px; font: 15px system-ui; background: #c66a2e; color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+  .controls { position: fixed; right: 8px; top: 8px; z-index: 10; background: rgba(20,24,30,.78); padding: 8px 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 6px; }
+  .controls label { display: flex; gap: 6px; align-items: center; }
+  .controls input { width: 70px; font: inherit; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="gl"></canvas>
+</div>
+<button id="start">Start camera</button>
+<div id="hud">ars magic-window — press “Start camera”.</div>
+<div class="controls">
+  <label>marker mm <input id="size" type="number" value="80" min="10" max="400"></label>
+  <label>show datum <input id="datum" type="checkbox"></label>
+</div>
+
+<canvas id="work" hidden></canvas>
+
+<script type="module">
+import * as THREE from '../vendor/three/three.module.min.js';
+import { createDetector, detect, markerPose } from './detect.js';
+import { solveDatum, classGate } from '../src/main.js';
+
+const $ = (s) => document.querySelector(s);
+const video = $('#video'), glCanvas = $('#gl'), work = $('#work'), hud = $('#hud');
+const wctx = work.getContext('2d', { willReadFrequently: true });
+
+let detector, renderer, scene, camera, running = false;
+const groups = new Map(); // markerId → THREE.Group (axes + cube)
+let datumAxes = null;
+
+function isSecure() { return window.isSecureContext; }
+
+async function start() {
+  $('#start').remove();
+  if (!isSecure()) {
+    hud.innerHTML = '<b>Not a secure context.</b>\ngetUserMedia needs https or http://localhost.\nServe this folder (e.g. `python -m http.server`) and open via http://localhost:PORT/web/harness.html';
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch (e) {
+    hud.innerHTML = '<b>Camera error:</b> ' + e.message;
+    return;
+  }
+  detector = createDetector({ dictionaryName: 'ARUCO_MIP_36h12' });
+  initThree();
+  running = true;
+  requestAnimationFrame(loop);
+}
+
+function initThree() {
+  renderer = new THREE.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true });
+  renderer.setClearColor(0x000000, 0); // transparent over the video
+  scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8); dir.position.set(1, 2, 3); scene.add(dir);
+  camera = new THREE.PerspectiveCamera(60, 1, 0.001, 100); // fov set per-frame from focal
+}
+
+// A per-marker visual: axes (orientation check) + a wireframe cube sitting on the face.
+function makeGroup(sizeM) {
+  const g = new THREE.Group();
+  g.matrixAutoUpdate = false;
+  g.add(new THREE.AxesHelper(sizeM));
+  const cube = new THREE.Mesh(
+    new THREE.BoxGeometry(sizeM, sizeM, sizeM),
+    new THREE.MeshStandardMaterial({ color: 0x2ea3c6, transparent: true, opacity: 0.55, wireframe: false }),
+  );
+  cube.position.z = sizeM / 2; // sit on top of the marker face (+Z out of the sheet)
+  g.add(cube);
+  return g;
+}
+
+function loop() {
+  if (!running) return;
+  requestAnimationFrame(loop);
+  if (video.readyState < 2) return;
+
+  const W = video.videoWidth, H = video.videoHeight;
+  if (!W || !H) return;
+  if (work.width !== W) { work.width = W; work.height = H; }
+
+  // size the GL canvas/camera to the video
+  const cw = glCanvas.clientWidth, ch = glCanvas.clientHeight;
+  if (renderer.domElement.width !== cw || renderer.domElement.height !== ch) renderer.setSize(cw, ch, false);
+  const focalPx = W; // heuristic focal length (frame width); refine with ChArUco later
+  camera.fov = 2 * Math.atan((H / 2) / focalPx) * 180 / Math.PI;
+  camera.aspect = W / H;
+  camera.updateProjectionMatrix();
+
+  wctx.drawImage(video, 0, 0, W, H);
+  const image = wctx.getImageData(0, 0, W, H);
+  const markers = detect(detector, image);
+
+  const sizeM = (Number($('#size').value) || 80) / 1000;
+  const seen = new Set();
+  const observations = [];
+
+  for (const m of markers) {
+    const p = markerPose(m.corners, { sizeMeters: sizeM, focalPx, width: W, height: H });
+    if (!p) continue;
+    seen.add(m.id);
+    observations.push({ id: m.id, pose: p.matrix });
+    let g = groups.get(m.id);
+    if (!g) { g = makeGroup(sizeM); groups.set(m.id, g); scene.add(g); }
+    g.matrix.fromArray(Array.from(p.matrix));
+    g.visible = true;
+  }
+  for (const [id, g] of groups) if (!seen.has(id)) g.visible = false;
+
+  // optional: show the shared datum origin (discovered from THIS frame's references)
+  updateDatum(observations, sizeM);
+
+  renderer.render(scene, camera);
+
+  const lines = markers.map((m) => `id ${m.id}`).join('  ') || '(no markers)';
+  hud.innerHTML = `<b>ars</b> ${W}×${H} · ${markers.length} marker(s)\n${lines}`;
+}
+
+function updateDatum(observations, sizeM) {
+  if (!datumAxes) { datumAxes = new THREE.AxesHelper(sizeM * 2); datumAxes.visible = false; scene.add(datumAxes); }
+  if (!$('#datum').checked) { datumAxes.visible = false; return; }
+  const refs = classGate(observations);
+  if (refs.length < 2) { datumAxes.visible = false; return; }
+  // single-frame "surveyed" check: treat the lowest-id reference as the origin, others
+  // at identity-relative placeholders is meaningless without a manifest — so here we
+  // just confirm the solve runs and place the origin at the lowest-id marker's pose.
+  refs.sort((a, b) => a.id - b.id);
+  datumAxes.matrixAutoUpdate = false;
+  datumAxes.matrix.fromArray(Array.from(refs[0].pose));
+  datumAxes.visible = true;
+}
+
+$('#start').addEventListener('click', start);
+</script>
+</body>
+</html>

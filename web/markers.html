@@ -23,8 +23,8 @@
   @media print {
     .controls, .note, h1 { display: none; }
     body { margin: 0; }
-    .sheet { gap: 2cm; }
-    .card { margin: 1cm; }
+    .sheet { gap: 0.8cm; justify-content: center; align-content: flex-start; }
+    .card { margin: 0.4cm; }
   }
 </style>
 </head>
@@ -42,7 +42,7 @@
     <input id="ids" value="0, 1, 2" size="24">
   </label>
   <label>Size (mm, black-square edge)
-    <input id="size" type="number" value="80" min="10" max="400" step="1">
+    <input id="size" type="number" value="60" min="10" max="400" step="1">
   </label>
   <button id="gen">Generate</button>
   <button id="print">Print…</button>

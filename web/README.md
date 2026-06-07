@@ -17,7 +17,7 @@ WebXR/`getUserMedia` and ES modules need a **secure context** and HTTP (not `fil
 # from the ars repo root
 python -m http.server 8000
 # then open:
-#   http://localhost:8000/web/markers.html   ← print a marker (80 mm is a good start)
+#   http://localhost:8000/web/markers.html   ← print markers (60 mm default; ids 0,1,2 fit one page)
 #   http://localhost:8000/web/harness.html   ← point the camera at the printed marker
 ```
 

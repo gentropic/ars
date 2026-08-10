@@ -101,10 +101,11 @@ Done:
   the webxr-SPEC §3.1 mount on all three surfaces — studio viewport,
   magic-window, and the XR loop. Load **real models — CSV/TXT and Datamine
   .dm** — over the blob lane (micro's own streaming providers, vendored),
-  pick the color column, ramp preset, and grade cutoff in the inspector; a
-  seeded demo deposit ships in the demo scene. `studio/DESIGN.md` is the
-  plan; next: sub-blocked models, LAS point clouds, PLY/GLB, single-file
-  build. The anchored tier + mount are stub-verified headless; the on-device
+  pick the color column, ramp preset, and grade cutoff in the inspector —
+  sub-blocked models included, and gridless ones degrade to graded point
+  clouds. **LAS point clouds** and **PLY/GLB meshes** load too (three addon
+  loaders vendored from the same pinned build). `studio/DESIGN.md` is the
+  plan; next: the single-file build. The anchored tier + mount are stub-verified headless; the on-device
   pass rides the owed m3 phone session.
 
 Next:

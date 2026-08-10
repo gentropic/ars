@@ -54,3 +54,10 @@ single `index.js` @gcu/build bundle from the auditable monorepo.
 Popup menus and menubars (Switchboard UI toolkit tier): the studio's menubar
 and context menus. `index.js` + structural/theme stylesheets from the
 auditable monorepo ext/menu. © GCU.
+
+## three examples (addons) — MIT
+
+`GLTFLoader`, `PLYLoader` and their utils from the SAME pinned three 0.184.0
+tarball as `vendor/three` — GLB/PLY meshes in the studio and viewer. Vendored
+verbatim; the bare `three` specifier resolves through an import map.
+© three.js authors.

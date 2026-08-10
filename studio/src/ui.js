@@ -49,10 +49,26 @@ export function initUI(store, view, els) {
     inp.click();
   }
 
-  const addMesh = (at) => pickFile('.stl', async (file) => {
+  const addMesh = (at) => pickFile('.stl,.ply,.glb', async (file) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const hash = await store.saveBlob(bytes);
-    addObject('mesh', { blob: hash, fmt: 'stl', unit: 'mm' }, file.name.replace(/\.stl$/i, ''), at);
+    const fmt = /\.ply$/i.test(file.name) ? 'ply' : /\.glb$/i.test(file.name) ? 'glb' : 'stl';
+    // STL convention is mm; PLY (Leapfrog, photogrammetry) and GLB are meters
+    addObject('mesh', { blob: hash, fmt, unit: fmt === 'stl' ? 'mm' : 'm' },
+      file.name.replace(/\.[^.]+$/, ''), at);
+  });
+
+  const addLas = (at) => pickFile('.las', async (file) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { discoverLas } = await import('./blocks.js');
+    let d;
+    try { d = await discoverLas(bytes); }
+    catch (e) { alert('las: ' + e.message); return; }
+    const hash = await store.saveBlob(bytes);
+    addObject('points', {
+      blob: hash, fmt: 'las', dims: d.dims, count: d.count,
+      colorBy: d.hasRgb ? 'rgb' : 'elev', ramp: 'viridis', footprint: 0.12,
+    }, file.name.replace(/\.[^.]+$/, ''), at);
   });
 
   const addImage = (at) => pickFile('image/*', async (file) => {
@@ -88,9 +104,10 @@ export function initUI(store, view, els) {
     { label: 'box', action: () => addObject('box', { w: 0.04, d: 0.04, h: 0.04, solid: true }, null, at) },
     { label: 'label', action: () => addObject('label', { text: 'label', size: 0.02 }, null, at) },
     '---',
-    { label: 'mesh (stl)…', action: () => addMesh(at) },
+    { label: 'mesh (stl/ply/glb)…', action: () => addMesh(at) },
     { label: 'image…', action: () => addImage(at) },
     { label: 'blocks (csv/dm)…', action: () => addBlocks(at) },
+    { label: 'points (las)…', action: () => addLas(at) },
   ];
 
   async function rename(obj) {
@@ -245,6 +262,18 @@ export function initUI(store, view, els) {
     if (obj.kind === 'axes') prop('size', 'size (m)');
     if (obj.kind === 'mesh') root.append(selectField('unit', obj.props.unit || 'mm',
       [['mm', 'mm'], ['m', 'm']], (v) => store.upsert({ id, props: { unit: v } })));
+    if (obj.kind === 'points') {
+      root.append(selectField('color by', obj.props.colorBy || 'elev',
+        [['elev', 'elevation'], ['intensity', 'intensity'],
+         ['classification', 'classification'], ['rgb', 'rgb']],
+        (v) => store.upsert({ id, props: { colorBy: v } })));
+      root.append(selectField('ramp', obj.props.ramp || 'viridis',
+        ['viridis', 'spectral', 'magma', 'turbo', 'greys'].map((r) => [r, r]),
+        (v) => store.upsert({ id, props: { ramp: v } })));
+      prop('footprint', 'span (m)');
+      if (obj.props.count) root.append(el('div', 'hint',
+        obj.props.count.toLocaleString() + ' points · las'));
+    }
     if (obj.kind === 'image') { prop('w', 'w (m)'); prop('d', 'd (m)'); }
     if (obj.kind === 'blocks') {
       if (obj.props.blob && obj.props.cols && obj.props.cols.length) {

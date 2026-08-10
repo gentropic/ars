@@ -5,7 +5,7 @@
 
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { build, RENDERABLE } from './objects.js';
-import { createBlocksMount } from './blocks.js';
+import { createBlocksMount, pickMountObject } from './blocks.js';
 import { effectiveHidden } from './store.js';
 
 export function createView(canvas, store, opts = {}) {
@@ -213,12 +213,14 @@ export function createView(canvas, store, opts = {}) {
   let warnedMulti = false;
 
   function drawBlocksUnder() {
-    const all = store.byKind('blocks').filter((o) => !effectiveHidden(store, o));
-    if (all.length > 1 && !warnedMulti) {
-      console.warn('ars studio: only ONE blocks layer renders (condenser clear-on-draw — the clear:false upstream debt)');
+    const visibleFn = (o) => effectiveHidden(store, o);
+    const nCondenser = [...store.byKind('blocks'), ...store.byKind('points')]
+      .filter((o) => !visibleFn(o)).length;
+    if (nCondenser > 1 && !warnedMulti) {
+      console.warn('ars studio: only ONE blocks/points item renders (condenser clear-on-draw — the clear:false upstream debt)');
       warnedMulti = true;
     }
-    const bo = all[0] || null;
+    const bo = pickMountObject(store, visibleFn);
     const ready = mount.sync(bo);
     if (!bo || !ready) { renderer.autoClear = true; scene.background = bgColor; return; }
     renderer.autoClear = false;

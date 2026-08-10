@@ -205,6 +205,152 @@ const chk = (name, cond, extra) => {
   chk('column switch + cutoff + ramp rebuild draws', other && other.drawn > 0,
     JSON.stringify(other));
 
+  // ── hardening + the new 3D formats ──────────────────────────────────────
+  const clearMount = () => page.evaluate(`(() => {
+    for (const o of [...__studio.store.byKind('blocks'), ...__studio.store.byKind('points')])
+      __studio.store.remove(o.id);
+  })()`);
+  const waitDrawn = async (expect) => {
+    // ready = the new build completed; then wait for a FRAME OF THAT BUILD —
+    // stats.drawn must hit the expected element count, not a stale frame's
+    await page.waitForFunction(
+      `__studio.view.blocksReady() && __studio.view.blocksStats() && __studio.view.blocksStats().drawn === ${expect}`,
+      { timeout: 30000 });
+    return page.evaluate('__studio.view.blocksStats()');
+  };
+
+  // sub-blocked CSV (xdim/ydim/zdim, two sizes): must ride the dimPalette
+  await clearMount();
+  const sub = await page.evaluate(`(async () => {
+    const rows = ['x,y,z,xdim,ydim,zdim,au'];
+    for (let k = 0; k < 2; k++) for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) {
+      if (i === 0 && j === 0 && k === 0) {                 // split this parent into 8 subs
+        for (const dz of [-2.5, 2.5]) for (const dy of [-2.5, 2.5]) for (const dx of [-2.5, 2.5])
+          rows.push([5 + dx, 5 + dy, 5 + dz, 5, 5, 5, 2.5].join(','));
+      } else rows.push([i * 10 + 5, j * 10 + 5, k * 10 + 5, 10, 10, 10, (i + j) / 4].join(','));
+    }
+    const bytes = new TextEncoder().encode(rows.join('\\n'));
+    const { discoverBlockModel } = await import('/studio/src/blocks.js');
+    const d = await discoverBlockModel(bytes, { dm: false });
+    const s = __studio.store;
+    const hash = await s.saveBlob(bytes);
+    s.upsert({ id: s.newId(), kind: 'blocks', name: 'sub', layer: s.byKind('layer')[0].id,
+      t: [0, 0, 0], props: { blob: hash, chan: d.chan, cols: d.cols, dims: d.dims,
+        count: d.count, ramp: 'viridis', cutoff: 0, edges: true, footprint: 0.1 } });
+    return { gridded: d.gridded, count: d.count };
+  })()`);
+  const subStats = await waitDrawn(39);
+  chk('sub-blocked csv renders (dimPalette)', sub.gridded && subStats.drawn > 0,
+    JSON.stringify({ sub, subStats }));
+
+  // gridless CSV: irregular centroids → the points fallback, not a refusal
+  await clearMount();
+  await page.evaluate(`(async () => {
+    let seed = 5; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const rows = ['x,y,z,au'];
+    for (let i = 0; i < 300; i++) rows.push([rnd() * 40, rnd() * 40, rnd() * 10, rnd() * 3].join(','));
+    const bytes = new TextEncoder().encode(rows.join('\\n'));
+    const s = __studio.store;
+    const hash = await s.saveBlob(bytes);
+    s.upsert({ id: s.newId(), kind: 'blocks', name: 'cloudy', layer: s.byKind('layer')[0].id,
+      t: [0, 0, 0], props: { blob: hash, chan: 3, cols: [], dims: [40, 40, 10],
+        count: 300, ramp: 'magma', cutoff: 0, footprint: 0.1 } });
+  })()`);
+  const gridless = await waitDrawn(300);
+  chk('gridless model falls back to graded points', gridless.drawn > 0, JSON.stringify(gridless));
+
+  // LAS: synthesize a v1.2 format-0 file, load through the points kind
+  await clearMount();
+  const las = await page.evaluate(`(async () => {
+    const N = 400;
+    const buf = new ArrayBuffer(227 + N * 20);
+    const dv = new DataView(buf);
+    const u8 = new Uint8Array(buf);
+    u8.set([0x4C, 0x41, 0x53, 0x46], 0);                  // 'LASF'
+    u8[24] = 1; u8[25] = 2;                                // version 1.2
+    dv.setUint16(94, 227, true);                           // header size
+    dv.setUint32(96, 227, true);                           // point data offset
+    dv.setUint32(100, 0, true);                            // VLRs
+    u8[104] = 0; dv.setUint16(105, 20, true);              // format 0, 20 B
+    dv.setUint32(107, N, true);                            // count
+    for (const [o, v] of [[131, 0.01], [139, 0.01], [147, 0.01]]) dv.setFloat64(o, v, true);
+    let seed = 9; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    let mx = [Infinity, Infinity, Infinity], MX = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < N; i++) {
+      const p = [rnd() * 30, rnd() * 30, rnd() * 8];
+      for (let a = 0; a < 3; a++) { mx[a] = Math.min(mx[a], p[a]); MX[a] = Math.max(MX[a], p[a]); }
+      const o = 227 + i * 20;
+      dv.setInt32(o, Math.round(p[0] / 0.01), true);
+      dv.setInt32(o + 4, Math.round(p[1] / 0.01), true);
+      dv.setInt32(o + 8, Math.round(p[2] / 0.01), true);
+      dv.setUint16(o + 12, (i * 37) % 4096, true);
+      u8[o + 14] = 0x11; u8[o + 15] = 2;                   // 1 return; class ground
+    }
+    for (const [o, v] of [[179, MX[0]], [187, mx[0]], [195, MX[1]], [203, mx[1]], [211, MX[2]], [219, mx[2]]])
+      dv.setFloat64(o, v, true);
+    const bytes = new Uint8Array(buf);
+    const { discoverLas } = await import('/studio/src/blocks.js');
+    const d = await discoverLas(bytes);
+    const s = __studio.store;
+    const hash = await s.saveBlob(bytes);
+    s.upsert({ id: s.newId(), kind: 'points', name: 'cloud', layer: s.byKind('layer')[0].id,
+      t: [0, 0, 0], props: { blob: hash, fmt: 'las', dims: d.dims, count: d.count,
+        colorBy: 'intensity', ramp: 'turbo', footprint: 0.1 } });
+    return d;
+  })()`);
+  const lasStats = await waitDrawn(400);
+  chk('las point cloud loads + draws', las.count === 400 && lasStats.drawn > 0,
+    JSON.stringify({ las, lasStats }));
+
+  // PLY mesh (ascii) and a minimal GLB — three-side loaders via the import map
+  const meshKinds = await page.evaluate(`(async () => {
+    const s = __studio.store;
+    const lid = s.byKind('layer')[0].id;
+    const ply = 'ply\\nformat ascii 1.0\\nelement vertex 3\\nproperty float x\\nproperty float y\\nproperty float z\\nelement face 1\\nproperty list uchar int vertex_indices\\nend_header\\n0 0 0\\n0.05 0 0\\n0 0.05 0\\n3 0 1 2\\n';
+    const plyHash = await s.saveBlob(new TextEncoder().encode(ply));
+    const plyObj = s.upsert({ id: s.newId(), kind: 'mesh', name: 'plytri', layer: lid,
+      t: [-0.06, 0, 0.01], props: { blob: plyHash, fmt: 'ply', unit: 'm' } });
+    // minimal GLB: one triangle, positions only
+    const json = JSON.stringify({ asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0] }],
+      nodes: [{ mesh: 0 }], meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+      accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3',
+        min: [0, 0, 0], max: [0.05, 0.05, 0] }],
+      bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }], buffers: [{ byteLength: 36 }] });
+    let jb = new TextEncoder().encode(json);
+    const jpad = (4 - (jb.length % 4)) % 4;
+    const bin = new Uint8Array(new Float32Array([0, 0, 0, 0.05, 0, 0, 0, 0.05, 0]).buffer);
+    const total = 12 + 8 + jb.length + jpad + 8 + bin.length;
+    const glb = new ArrayBuffer(total);
+    const gv = new DataView(glb);
+    const gu = new Uint8Array(glb);
+    gv.setUint32(0, 0x46546C67, true); gv.setUint32(4, 2, true); gv.setUint32(8, total, true);
+    gv.setUint32(12, jb.length + jpad, true); gv.setUint32(16, 0x4E4F534A, true);
+    gu.set(jb, 20); for (let i = 0; i < jpad; i++) gu[20 + jb.length + i] = 0x20;
+    const bo = 20 + jb.length + jpad;
+    gv.setUint32(bo, bin.length, true); gv.setUint32(bo + 4, 0x004E4942, true);
+    gu.set(bin, bo + 8);
+    const glbHash = await s.saveBlob(new Uint8Array(glb));
+    const glbObj = s.upsert({ id: s.newId(), kind: 'mesh', name: 'glbtri', layer: lid,
+      t: [0.06, 0, 0.01], props: { blob: glbHash, fmt: 'glb', unit: 'm' } });
+    // poll until both wrapper groups grew real children (async loaders)
+    const grew = (id) => new Promise((res) => {
+      const t0 = performance.now();
+      const tick = () => {
+        let found = 0;
+        __studio.view.scene.traverse((n) => {
+          if (n.userData.objectId === id && (n.isMesh || n.isPoints || (n.isGroup && n.children.length))) found++;
+        });
+        if (found > 1) return res(true);                   // wrapper + content
+        if (performance.now() - t0 > 15000) return res(false);
+        setTimeout(tick, 100);
+      };
+      tick();
+    });
+    return { ply: await grew(plyObj.id), glb: await grew(glbObj.id) };
+  })()`);
+  chk('ply mesh loads through the vendored loader', meshKinds.ply === true, JSON.stringify(meshKinds));
+  chk('glb mesh loads through the vendored loader', meshKinds.glb === true, JSON.stringify(meshKinds));
+
   chk('no page errors (end)', errors.length === 0, errors.join('; '));
 
   await browser.close();

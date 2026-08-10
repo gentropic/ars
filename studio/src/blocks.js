@@ -78,11 +78,30 @@ export function demoExtent(props) {
   return [NI * S * k, NJ * S * k, NK * S * k];
 }
 
-// world extent of a FILE blocks object (props.dims = model-unit bbox size)
+// world extent of a FILE blocks/points object (props.dims = model-unit bbox)
 export function fileExtent(props) {
   const [dx, dy, dz] = props.dims || [1, 1, 1];
   const k = (props.footprint ?? 0.12) / Math.max(dx, dy);
   return [dx * k, dy * k, dz * k];
+}
+
+// the condenser mount serves ONE object per scene (clear-on-draw debt):
+// the first visible blocks or points item wins; others warn.
+export function pickMountObject(store, hiddenFn) {
+  return [...store.byKind('blocks'), ...store.byKind('points')]
+    .filter((o) => !hiddenFn(o))[0] || null;
+}
+
+// LAS discovery for the file picker / harness.
+export async function discoverLas(bytes) {
+  const C = await loadCondenser();
+  const { header } = await C.openLas(new Blob([bytes]));
+  const b = header.bbox;
+  return {
+    count: header.count, format: header.format,
+    hasRgb: [2, 3, 7, 8].includes(header.format),
+    dims: [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]],
+  };
 }
 
 // ── discovery (used by the studio's file picker and the harness) ──────────
@@ -149,6 +168,13 @@ export function createBlocksMount(gl, opts = {}) {
              k: demoModelScale(obj.props), off: [0, 0, demoLift(obj.props)], extent };
   }
 
+  // frame origin at xy-center / z-min: frame-local coords are centered on
+  // the sheet and start at z = 0 — the model sits ON the mat
+  const frameFor = (b) => ({ origin: [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, b.min[2]],
+                             crs: null, units: 'm' });
+  const kFor = (dims, props) => (props.footprint ?? 0.12) / Math.max(dims[0], dims[1]);
+  const dimsOf = (b) => [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]];
+
   async function buildFile(obj) {
     const bytes = opts.getBlob && opts.getBlob(obj.props.blob);
     if (!bytes) return null;                    // blob still in transit — retry
@@ -157,28 +183,72 @@ export function createBlocksMount(gl, opts = {}) {
     let { header, streamChunks } = await open(blob, {});
     if (obj.props.chan != null && header.mapping && header.mapping.chan !== obj.props.chan)
       ({ header, streamChunks } = await open(blob, { mapping: { ...header.mapping, chan: obj.props.chan } }));
-    if (!header.grid) return { error: 'no regular grid detected — not supported yet' };
-    const b = header.bbox;
-    // frame origin at xy-center / z-min: frame-local coords are centered on
-    // the sheet and start at z = 0 — the deposit sits ON the mat
-    const frame = { origin: [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, b.min[2]],
-                    crs: null, units: 'm' };
-    const grid = C.makeBlockGrid([header.grid.x, header.grid.y, header.grid.z], frame);
+    const frame = frameFor(header.bbox);
+    const dims = dimsOf(header.bbox);
     renderer.removeLayer(LAYER);
     const chanAll = new Float32Array(header.count);
-    const cb = C.createBlockChunkBuilder({ frame, grid, chunkSize: 1 << 17, batchSize: 1 << 21,
-      seed: 1, onChunk: (c) => renderer.addChunk(c, 'base', LAYER) });
-    for await (const rc of streamChunks({ chunkPoints: 1 << 17 })) {
+    const keepChan = (rc) => {
       if (rc.recStart != null && rc.recStart + rc.count <= chanAll.length)
         for (let i = 0; i < rc.count; i++) chanAll[rc.recStart + i] = rc.chan[i];
-      cb.push(rc);
+    };
+
+    if (header.grid) {
+      const grid = C.makeBlockGrid([header.grid.x, header.grid.y, header.grid.z], frame);
+      // sub-blocked models carry per-block half-dimensions on the fine
+      // lattice — the palette MUST reach the builder or every sub-block
+      // renders at full lattice size (micro's exact wiring)
+      const dimPalette = header.subBlocked ? header.dimPalette : null;
+      const cb = C.createBlockChunkBuilder({ frame, grid, dimPalette, chunkSize: 1 << 17,
+        batchSize: 1 << 21, seed: 1, onChunk: (c) => renderer.addChunk(c, 'base', LAYER) });
+      for await (const rc of streamChunks({ chunkPoints: 1 << 17 })) { keepChan(rc); cb.push(rc); }
+      const doc = cb.flush();
+      renderer.setDocBbox(doc.bboxLocal);
+      applyStyle(obj.props, chanAll);
+      return { count: doc.count, chanAll, k: kFor(dims, obj.props), off: [0, 0, 0],
+               extent: dims, colorMode: 1 };
+    }
+
+    // no regular grid (irregular / forced points): centroids as points,
+    // grade → the intensity slot — micro's fallback, not a refusal
+    const cb = C.createChunkBuilder({ frame, chunkSize: 1 << 18, batchSize: 1 << 22,
+      seed: 1, onChunk: (c) => renderer.addChunk(c, 'base', LAYER) });
+    for await (const rc of streamChunks({ chunkPoints: 1 << 18 })) {
+      keepChan(rc);
+      let cMin = Infinity, cMax = -Infinity;
+      for (let i = 0; i < rc.count; i++) { const v = rc.chan[i]; if (Number.isFinite(v)) { if (v < cMin) cMin = v; if (v > cMax) cMax = v; } }
+      const s = cMax > cMin ? 65535 / (cMax - cMin) : 0;
+      const intensity = new Uint16Array(rc.count);
+      for (let i = 0; i < rc.count; i++) intensity[i] = Number.isFinite(rc.chan[i]) ? ((rc.chan[i] - cMin) * s) | 0 : 0;
+      cb.push({ count: rc.count, x: rc.x, y: rc.y, z: rc.z, intensity,
+                classification: rc.cat || new Uint8Array(rc.count), rgb: null, recStart: rc.recStart });
     }
     const doc = cb.flush();
     renderer.setDocBbox(doc.bboxLocal);
     applyStyle(obj.props, chanAll);
-    const dims = [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]];
-    const k = (obj.props.footprint ?? 0.12) / Math.max(dims[0], dims[1]);
-    return { count: doc.count, chanAll, k, off: [0, 0, 0], extent: dims };
+    return { count: doc.count, chanAll, k: kFor(dims, obj.props), off: [0, 0, 0],
+             extent: dims, colorMode: 1, points: true };
+  }
+
+  // LAS point cloud ('points' kind): the provider streams RawChunks that ARE
+  // the points-chunk shape — straight into the builder. colorBy → the point
+  // shader's enum: 0 elevation, 1 intensity, 2 classification, 3 rgb.
+  async function buildLas(obj) {
+    const bytes = opts.getBlob && opts.getBlob(obj.props.blob);
+    if (!bytes) return null;
+    const { header, streamChunks } = await C.openLas(new Blob([bytes]));
+    const frame = frameFor(header.bbox);
+    const dims = dimsOf(header.bbox);
+    renderer.removeLayer(LAYER);
+    const cb = C.createChunkBuilder({ frame, chunkSize: 1 << 18, batchSize: 1 << 22,
+      seed: 1, onChunk: (c) => renderer.addChunk(c, 'base', LAYER) });
+    for await (const rc of streamChunks({ chunkPoints: 1 << 18 })) cb.push(rc);
+    const doc = cb.flush();
+    renderer.setDocBbox(doc.bboxLocal);
+    renderer.setLayerRamp(LAYER, C.rampPixels(256, RAMPS[obj.props.ramp] || RAMPS.viridis));
+    renderer.setFilter(null, {}, LAYER);
+    const mode = { elev: 0, intensity: 1, classification: 2, rgb: 3 }[obj.props.colorBy] ?? 0;
+    return { count: doc.count, k: kFor(dims, obj.props), off: [0, 0, 0],
+             extent: dims, colorMode: mode, points: true };
   }
 
   return {
@@ -192,14 +262,15 @@ export function createBlocksMount(gl, opts = {}) {
     sync(obj) {
       if (!obj) { built = null; return false; }
       const p = obj.props;
-      const key = JSON.stringify([p.blob, p.dm, p.chan, p.seed, p.ni, p.nj, p.nk, p.pitch,
-                                  p.cutoff, p.ramp, p.edges, p.footprint]);
+      const key = JSON.stringify([obj.kind, p.blob, p.dm, p.chan, p.seed, p.ni, p.nj, p.nk,
+                                  p.pitch, p.cutoff, p.ramp, p.edges, p.footprint, p.colorBy]);
       if (built && built.key === key) return !built.error;
       if (loading) return false;
       loading = true;
       (async () => {
         await ensureRenderer();
-        const r = p.blob ? await buildFile(obj) : await buildDemo(obj);
+        const r = obj.kind === 'points' ? await buildLas(obj)
+                : p.blob ? await buildFile(obj) : await buildDemo(obj);
         if (r) built = { key, ...r };           // null = blob pending, retry next frame
         loading = false;
       })().catch((e) => { built = { key, error: e.message }; loading = false; console.error('ars blocks:', e); });
@@ -235,8 +306,9 @@ export function createBlocksMount(gl, opts = {}) {
       renderer.invalidate();
       lastStats = renderer.draw(duck, {
         budget: drawOpts.budget ?? 1_500_000,
-        colorMode: drawOpts.colorMode ?? 1,
+        colorMode: drawOpts.colorMode ?? built.colorMode ?? 1,
         blockEdges: drawOpts.edges ?? true,
+        pointPx: drawOpts.pointPx ?? 3,
       });
       return lastStats;
     },

@@ -101,13 +101,56 @@ const builders = {
   mesh(obj, store) {
     const g = new THREE.Group();
     const bytes = obj.props.blob && store.getBlob(obj.props.blob);
-    if (bytes) {
-      const unit = obj.props.unit === 'm' ? 1 : 0.001;   // STL is usually mm
-      const geo = parseSTL(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    if (!bytes) return g;
+    const unit = obj.props.unit === 'm' ? 1 : 0.001;     // STL is usually mm
+    const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const fmt = obj.props.fmt || 'stl';
+    const mat = (geo) => new THREE.MeshStandardMaterial({
+      color: geo.attributes.color ? 0xffffff : (obj.props.color ?? 0x9aa4b2),
+      flatShading: !geo.attributes.normal,
+      vertexColors: !!geo.attributes.color,
+    });
+    if (fmt === 'stl') {
+      const geo = parseSTL(buf);
       geo.scale(unit, unit, unit);
-      g.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-        color: obj.props.color ?? 0x9aa4b2, flatShading: true })));
+      g.add(new THREE.Mesh(geo, mat(geo)));
+    } else if (fmt === 'ply') {
+      // vendored three addon (bare 'three' resolves via the page import map);
+      // fills in async — the wrapper node exists and transforms immediately
+      import('../../vendor/three-addons/loaders/PLYLoader.js').then(({ PLYLoader }) => {
+        const geo = new PLYLoader().parse(buf);
+        geo.scale(unit, unit, unit);
+        if (geo.index && geo.index.count) {
+          if (!geo.attributes.normal) geo.computeVertexNormals();
+          g.add(new THREE.Mesh(geo, mat(geo)));
+        } else {                                          // vertex-only PLY = point cloud
+          g.add(new THREE.Points(geo, new THREE.PointsMaterial({
+            size: 0.0015, vertexColors: !!geo.attributes.color,
+            color: geo.attributes.color ? 0xffffff : AMBER })));
+        }
+      }).catch((e) => console.error('ars ply:', e));
+    } else if (fmt === 'glb') {
+      import('../../vendor/three-addons/loaders/GLTFLoader.js').then(({ GLTFLoader }) => {
+        new GLTFLoader().parse(buf, '', (gltf) => {
+          gltf.scene.scale.setScalar(unit);               // GLB is meters by spec
+          g.add(gltf.scene);
+        }, (e) => console.error('ars glb:', e));
+      }).catch((e) => console.error('ars glb:', e));
     }
+    return g;
+  },
+
+  points(obj) {
+    // three-side PROXY (like blocks): a wire box of the cloud's world extent
+    // for picking/placement — the data renders through the condenser mount
+    const [w, d, h] = fileExtent(obj.props);
+    const geo = new THREE.BoxGeometry(w, d, h);
+    geo.translate(0, 0, h / 2);
+    const g = new THREE.Group();
+    g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color: 0x5b6470 })));
+    const pickBox = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ visible: false }));
+    g.add(pickBox);
     return g;
   },
 

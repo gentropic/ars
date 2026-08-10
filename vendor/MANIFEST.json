@@ -80,6 +80,20 @@
         { "path": "gcu-menu/menu-default.css", "bytes": 2512, "sha256": "edd824f4f3c5cf6612fcea77f55e35c0afd4159246bd567da7543d0f42a250ad" }
       ],
       "notes": "Switchboard-tier menu toolkit: Menu.show (promise-resolving popups/context menus, nested children, checked/danger/icons, full keyboard + typeahead), MenuBar (reactive sections, Alt/F10). The studio's menubar and every context menu run on it; themed via --ui-* tokens overridden in studio/index.html. (micro carries an older inline kit predating this package — the package is the ecosystem convention.)"
+    },
+    {
+      "name": "three-addons",
+      "version": "0.184.0",
+      "license": "MIT",
+      "homepage": "https://threejs.org",
+      "source": "https://registry.npmjs.org/three/-/three-0.184.0.tgz (examples/jsm/, same pinned version as vendor/three)",
+      "files": [
+        { "path": "three-addons/loaders/GLTFLoader.js", "bytes": 114959, "sha256": "97642d720f16cc9a0c9844934198e4d0c023bea8e89576d0f7545d03b2d103d2" },
+        { "path": "three-addons/loaders/PLYLoader.js", "bytes": 17700, "sha256": "b824a6dda90cbfb37cabf8e5462ed1673e7693852bc1a6a7bab0465d7b634dfb" },
+        { "path": "three-addons/utils/BufferGeometryUtils.js", "bytes": 35539, "sha256": "d700b4c4584b9ff53a04692624d2363019f6d1df2978a207389168c6ae647a65" },
+        { "path": "three-addons/utils/SkeletonUtils.js", "bytes": 11535, "sha256": "b1632a703206c3d830de9fcbe515696770d04b71a15ee6b50afa6d2c3298c86f" }
+      ],
+      "notes": "GLB + PLY mesh loading for the studio/viewer mesh kind. Vendored VERBATIM (bare `import 'three'` intact) — resolution happens via an import map in studio/index.html and web/viewer.html pointing 'three' at vendor/three/three.module.min.js, so no file is patched and the hashes hold. GLTFLoader's relative ../utils/ imports dictate the directory shape. Lazy-imported only when a ply/glb mesh exists. KTX2/Draco-compressed GLBs are NOT supported (no decoder vendored — plain GLB only)."
     }
   ]
 }

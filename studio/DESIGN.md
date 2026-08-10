@@ -47,9 +47,10 @@ Kinds (staged, all designed now):
 | `axes`    | size                                    | 1 |
 | `box`     | w/d/h (m), wire or solid, color         | 1 |
 | `label`   | text, size; billboard on the phone      | 1 |
-| `mesh`    | blob (hash), fmt: stl/ply/glb, unit     | 1 (stl) / 3 (ply, glb) |
+| `mesh`    | blob (hash), fmt: stl/ply/glb, unit     | 1 (stl) / 3 (ply+glb DONE) |
 | `image`   | blob (hash), w/d (m) — plans, sections  | 3 |
-| `blocks`  | seed/ni/nj/nk/pitch/cutoff/edges/footprint (demo recipe); blob later | 4 |
+| `blocks`  | demo recipe OR blob+chan/ramp/cutoff (csv/dm, sub-blocked incl.) | 4 |
+| `points`  | blob (las), colorBy elev/intensity/class/rgb, ramp | 4 |
 
 Binary payloads (meshes, images, block models) are content-addressed **blobs**
 (sha-256), referenced from `props.blob` — precisely `@gcu/sync`'s blob lane
@@ -140,7 +141,7 @@ dev shell IS the app.
    is only knowable at requestSession; visionOS rejects) falling back to
    tier 2. Smoke: the real viewer against a three-compatible WebXR stub +
    fake room — grounds, anchors, reports pose. m3 stays the reference app.
-3. **More layers** — PLY, GLB (vendor three loaders).
+3. **More layers (DONE 2026-08-10)** — PLY + GLB meshes (three addon loaders vendored VERBATIM from the pinned 0.184.0 tarball; bare 'three' resolves via an import map in both pages, so the hashes hold); vertex-only PLY renders as points. KTX2/Draco GLBs unsupported (no decoder vendored). Same slice: HARDENING — sub-blocked csv/dm ride the dimPalette (they rendered at full lattice size before); gridless/irregular models fall back to graded centroids-as-points (micro's path) instead of refusing; and LAS point clouds land as the `points` kind through the same condenser mount (elevation/intensity/classification/rgb coloring).
 4. **Condenser (v1 DONE 2026-08-10)** — `blocks` layers render through the
    §3.1 mount on ALL THREE surfaces (studio viewport, magic-window, XR loop):
    condenser draws at order 0 into the same GL context (its clear is the

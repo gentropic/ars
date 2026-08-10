@@ -17,5 +17,3 @@ ars.zip
 # harness byproducts
 webxr/harness/out.png
 webxr/harness/condenser.js
-webxr/harness/package.json
-webxr/harness/package-lock.json

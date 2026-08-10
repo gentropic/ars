@@ -4,7 +4,24 @@
 // Geometry: camera at origin looking down -Z; marker (140 mm, id 0) flat on
 // the plane z = -0.5 facing the camera, top edge up. Expected fused pose:
 // rotation = identity, position = (0, 0, -0.5).
-const puppeteer = require('puppeteer');
+// npm i (playwright, repo root), then: node e2e-m3.js (serves ../reference in-process).
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REF = path.join(__dirname, '..', 'reference');
+const server = http.createServer((req, res) => {
+  const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  fs.readFile(path.join(REF, p), (err, data) => {
+    if (err) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': p.endsWith('.html') ? 'text/html' : 'application/octet-stream' });
+    res.end(data);
+  });
+});
+let PORT = 0;
 
 const STUB = `
 (() => { try {
@@ -137,15 +154,15 @@ const STUB = `
 `;
 
 async function runScenario(name, fycam, worldY = 0.1, worldZ = 0.5, msize = 140, expect = 'anchored'){
-  const browser = await puppeteer.launch({ headless: 'new',
+  const browser = await chromium.launch({
     args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('Failed to load resource')) errors.push(m.text()); });
-  await page.evaluateOnNewDocument('window.__FYCAM = ' + (fycam || 'undefined') + '; window.__WORLDY = ' + worldY + '; window.__WORLDZ = ' + worldZ + ';');
-  await page.evaluateOnNewDocument(STUB);
-  await page.goto('http://localhost:8078/ars-m3.html');
+  await page.addInitScript('window.__FYCAM = ' + (fycam || 'undefined') + '; window.__WORLDY = ' + worldY + '; window.__WORLDZ = ' + worldZ + ';');
+  await page.addInitScript(STUB);
+  await page.goto(`http://127.0.0.1:${PORT}/ars-m3.html`);
   await page.evaluate('window.__initCam()');
   await page.evaluate(`localStorage.clear(); document.getElementById('msize').value = '` + msize + `'`);
   await page.click('#enter');
@@ -204,8 +221,11 @@ async function runScenario(name, fycam, worldY = 0.1, worldZ = 0.5, msize = 140,
   return ok;
 }
 (async () => {
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  PORT = server.address().port;
   const a = await runScenario('correct-setup', null, 0.1, 0.5, 140, 'anchored');
   const b = await runScenario('wrong-size-entered', null, 0.1, 0.5, 100, 'size-warning');
+  server.close();
   console.log(a && b ? 'E2E: ALL PASS — correct setup anchors; wrong size fails LOUDLY with the right number'
                      : 'E2E: FAIL');
   process.exit(a && b ? 0 : 1);

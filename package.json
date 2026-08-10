@@ -29,5 +29,8 @@
     "gcu"
   ],
   "author": "Arthur Endlein Correia",
-  "homepage": "https://gentropic.org"
+  "homepage": "https://gentropic.org",
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
 }

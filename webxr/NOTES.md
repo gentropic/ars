@@ -7,6 +7,9 @@
 > `/vendor/js-aruco2/`; its LICENSE-NOTE is covered by `/vendor/NOTICE.md`);
 > the four harness benches had their vendor/upstream import paths repointed
 > (`../../vendor/js-aruco2/`, `ARS_REPO || '../..'`) and were re-run green;
+> the two browser runners (e2e-m3.js, run.js) were converted from puppeteer
+> to playwright (the GCU-wide convention) + in-process static serving, and
+> the e2e merge gate re-run green (both scenarios);
 > this package's `package.json` was superseded by the repo's (version bumped
 > 0.1.0 → 0.2.0 as §8b prescribes). `src/`, `demo/`, `reference/`, `assets/`
 > are verbatim. The §8b wiring tasks remain open — see the repo README roadmap.
@@ -58,7 +61,12 @@ Target: `ext/ars/` in the auditable monorepo, alongside condenser.
    `clear:false` draw option for multi-mount frames; the eight-field camera
    duck and the rigid-space assumption should eventually be documented on
    condenser's side too.
-5. harness: `npm i puppeteer` inside harness/, then `node run.js` (condenser
+5. [Updated at merge: the harness now runs on playwright (the GCU-wide
+   choice — 13 of 14 sibling repos), installed as a root devDependency
+   (`npm i` at repo root); both runners serve their files in-process, so no
+   external server and no ports to arrange. `node e2e-m3.js` and
+   `node run.js` from harness/, that's all.]
+   Original: `npm i puppeteer` inside harness/, then `node run.js` (condenser
    mount; auto-copies ext/condenser/index.js) and `node e2e-m3.js` (marker
    end-to-end; serve reference/ars-m3.html on :8078 or adjust the URL). The
    e2e is the merge gate for anything touching the marker path: BOTH

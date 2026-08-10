@@ -358,4 +358,5 @@ THIS package is the other half — the WebXR device edge the repo's roadmap name
 - vendor/js-aruco2/ — svd.js, cv.js, aruco.js, posit1.js (MIT, unmodified).
 - assets/ — the printable marker PDF.
 - harness/ — e2e-m3.js (WebXR-stub end-to-end), test.html + run.js
-  (condenser mount), all runnable via `npm i puppeteer && node <file>`.
+  (condenser mount), all runnable via `npm i` (playwright, repo root) then
+  `node <file>` from harness/ — each serves its own files in-process.

@@ -7,8 +7,14 @@
 // phone. dblclick / F2 rename, Delete deletes, h toggles the selected eye,
 // right-click anywhere for the object's menu.
 
-import { menuXY, menuAt } from './menu.js';
+import { Menu, MenuBar } from '../../vendor/gcu-menu/index.js';
 import { effectiveHidden } from './store.js';
+
+// actions are CLOSURES: Menu.show resolves the item's action value, we run it
+async function popup(items, x, y) {
+  const a = await Menu.show(items, { x, y });
+  if (typeof a === 'function') a();
+}
 
 const mm = (v) => Math.round(v * 1000);
 const fromMm = (v) => (Number(v) || 0) / 1000;
@@ -81,7 +87,7 @@ export function initUI(store, view, els) {
     { label: 'axes', action: () => addObject('axes', { size: 0.05 }, null, at) },
     { label: 'box', action: () => addObject('box', { w: 0.04, d: 0.04, h: 0.04, solid: true }, null, at) },
     { label: 'label', action: () => addObject('label', { text: 'label', size: 0.02 }, null, at) },
-    { sep: true },
+    '---',
     { label: 'mesh (stl)…', action: () => addMesh(at) },
     { label: 'image…', action: () => addImage(at) },
     { label: 'blocks (csv/dm)…', action: () => addBlocks(at) },
@@ -105,65 +111,68 @@ export function initUI(store, view, els) {
 
   // ── context menus ───────────────────────────────────────────────────────
   function itemMenu(obj, x, y) {
-    menuXY(x, y, [
-      { label: obj.hidden ? 'show' : 'hide', kbd: 'h', action: () => toggleHidden(obj) },
-      { label: 'rename…', kbd: 'F2', action: () => rename(obj) },
+    popup([
+      { label: obj.hidden ? 'show' : 'hide', shortcut: 'h', action: () => toggleHidden(obj) },
+      { label: 'rename…', shortcut: 'F2', action: () => rename(obj) },
       { label: 'duplicate', action: () => duplicate(obj) },
       { label: 'zoom to', action: () => view.lookAt(obj.t) },
-      { label: 'move to layer', submenu: () => layers().map((l) => ({
+      { label: 'move to layer', children: () => layers().map((l) => ({
           label: l.name, checked: obj.layer === l.id,
           action: () => store.upsert({ id: obj.id, layer: l.id }) })) },
-      { sep: true },
-      { label: 'delete', kbd: 'Del', action: () => { store.remove(obj.id); view.select(null); } },
-    ]);
+      '---',
+      { label: 'delete', shortcut: 'Del', danger: true,
+        action: () => { store.remove(obj.id); view.select(null); } },
+    ], x, y);
   }
   function layerMenu(layer, x, y) {
-    menuXY(x, y, [
+    popup([
       { label: layer.hidden ? 'show layer' : 'hide layer', action: () => toggleHidden(layer) },
-      { label: 'rename…', kbd: 'F2', action: () => rename(layer) },
-      { label: 'add here', submenu: () => {
+      { label: 'rename…', shortcut: 'F2', action: () => rename(layer) },
+      { label: 'add here', children: () => {
           state.activeLayer = layer.id;
           return addItems();
         } },
-      { sep: true },
-      { label: 'delete layer…', action: () => removeLayerDeep(layer) },
-    ]);
+      '---',
+      { label: 'delete layer…', danger: true, action: () => removeLayerDeep(layer) },
+    ], x, y);
   }
 
-  // ── menubar ─────────────────────────────────────────────────────────────
-  els.mFile.onclick = () => menuAt(els.mFile, [
-    { label: 'new scene…', action: () => {
-        if (!confirm('Clear the scene? (removes every object)')) return;
-        for (const o of store.all()) store.remove(o.id);
-      } },
-    { sep: true },
-    { label: 'open project…', action: () => pickFile('.json', async (f) => store.importProject(await f.text())) },
-    { label: 'save project', action: () => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([store.exportProject()], { type: 'application/json' }));
-        a.download = 'scene.ars.json';
-        a.click();
-        URL.revokeObjectURL(a.href);
-      } },
-    { sep: true },
-    { label: 'demo scene', checked: layers().some((l) => l.name === 'demo'),
-      action: async () => { const { toggleDemoScene } = await import('./demo.js'); await toggleDemoScene(store); } },
+  // ── menubar (@gcu/menu MenuBar — sections with factory items, so checked/
+  // disabled states re-evaluate every time a menu opens) ───────────────────
+  const bar = new MenuBar(els.menubar, [
+    { label: 'file', items: () => [
+      { label: 'new scene…', action: () => {
+          if (!confirm('Clear the scene? (removes every object)')) return;
+          for (const o of store.all()) store.remove(o.id);
+        } },
+      '---',
+      { label: 'open project…', action: () => pickFile('.json', async (f) => store.importProject(await f.text())) },
+      { label: 'save project', action: () => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(new Blob([store.exportProject()], { type: 'application/json' }));
+          a.download = 'scene.ars.json';
+          a.click();
+          URL.revokeObjectURL(a.href);
+        } },
+      '---',
+      { label: 'demo scene', checked: layers().some((l) => l.name === 'demo'),
+        action: async () => { const { toggleDemoScene } = await import('./demo.js'); await toggleDemoScene(store); } },
+    ] },
+    { label: 'add', items: () => [
+      ...addItems(),
+      '---',
+      { label: 'layer', action: () => {
+          const l = store.upsert({ id: store.newId(), kind: 'layer', name: 'layer ' + (layers().length + 1) });
+          state.activeLayer = l.id;
+        } },
+    ] },
+    { label: 'view', items: () => [
+      { label: 'zoom to mat', action: () => view.lookAt([0, 0, 0]) },
+      { label: 'zoom to selection', disabled: !view.selectedId(),
+        action: () => { const o = store.get(view.selectedId()); if (o) view.lookAt(o.t); } },
+    ] },
   ]);
-
-  els.mAdd.onclick = () => menuAt(els.mAdd, [
-    ...addItems(),
-    { sep: true },
-    { label: 'layer', action: () => {
-        const l = store.upsert({ id: store.newId(), kind: 'layer', name: 'layer ' + (layers().length + 1) });
-        state.activeLayer = l.id;
-      } },
-  ]);
-
-  els.mView.onclick = () => menuAt(els.mView, [
-    { label: 'zoom to mat', action: () => view.lookAt([0, 0, 0]) },
-    { label: 'zoom to selection', disabled: !view.selectedId(),
-      action: () => { const o = store.get(view.selectedId()); if (o) view.lookAt(o.t); } },
-  ]);
+  bar.on('action', (a) => { if (typeof a === 'function') a(); });
 
   // ── the tree ────────────────────────────────────────────────────────────
   function eyeEl(obj) {
@@ -299,8 +308,8 @@ export function initUI(store, view, els) {
   // right-click in the viewport: item menu on an object, add-menu on the mat
   view.onContextMenu = (id, matPoint, x, y) => {
     if (id) { const o = store.get(id); if (o) { view.select(id); itemMenu(o, x, y); } }
-    else menuXY(x, y, [{ label: 'add at this spot', submenu: addItems(matPoint) },
-                       { label: 'zoom to mat', action: () => view.lookAt([0, 0, 0]) }]);
+    else popup([{ label: 'add at this spot', children: addItems(matPoint) },
+                { label: 'zoom to mat', action: () => view.lookAt([0, 0, 0]) }], x, y);
   };
 
   window.addEventListener('keydown', (e) => {

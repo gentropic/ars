@@ -36,9 +36,7 @@ async function boot() {
   initUI(store, view, {
     tree: document.getElementById('tree'),
     inspector: document.getElementById('inspector'),
-    mFile: document.getElementById('m-file'),
-    mAdd: document.getElementById('m-add'),
-    mView: document.getElementById('m-view'),
+    menubar: document.getElementById('menubar'),
   });
 
   // ── share: create a room, show the QR, stream the scene (stage 2) ──────

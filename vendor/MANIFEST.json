@@ -67,6 +67,19 @@
         { "path": "condenser/index.js", "bytes": 399389, "sha256": "d259338bb65f523931e287d2847a82e01da07158c5b3747dc043a57763ffa635" }
       ],
       "notes": "Streaming block-model/point-cloud renderer (the engine under micro), mounted per webxr/SPEC.md §3.1: fake-canvas context handoff, eight-field camera duck in MODEL-LOCAL space (viewProj/view/eye/target/near/fovY/ortho/halfH; renormalize view rows under a scaled mount), setBackground([0,0,0,0]) for passthrough, draw()s at order 0 (it may clear — the clear:false upstream debt limits us to ONE mount per frame). Loaded lazily only when a blocks layer exists. The reference mount recipe lives in webxr/harness/test.html (headless-verified)."
+    },
+    {
+      "name": "@gcu/menu",
+      "version": "0.1.0",
+      "license": "MIT",
+      "homepage": "https://github.com/gentropic (auditable/ext/menu)",
+      "source": "auditable monorepo ext/menu (index.js bundle + stylesheets)",
+      "files": [
+        { "path": "gcu-menu/index.js", "bytes": 33907, "sha256": "47401c78767f07b78810bb19c6cf4f6960b3ac43474b9b628f865fa95b308c2c" },
+        { "path": "gcu-menu/menu.css", "bytes": 1636, "sha256": "3d996a5bf976f066fb79ea1aa5424546b21439d15b329d9958992c4c6835a761" },
+        { "path": "gcu-menu/menu-default.css", "bytes": 2512, "sha256": "edd824f4f3c5cf6612fcea77f55e35c0afd4159246bd567da7543d0f42a250ad" }
+      ],
+      "notes": "Switchboard-tier menu toolkit: Menu.show (promise-resolving popups/context menus, nested children, checked/danger/icons, full keyboard + typeahead), MenuBar (reactive sections, Alt/F10). The studio's menubar and every context menu run on it; themed via --ui-* tokens overridden in studio/index.html. (micro carries an older inline kit predating this package — the package is the ecosystem convention.)"
     }
   ]
 }

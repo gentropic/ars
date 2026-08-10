@@ -56,8 +56,8 @@ const chk = (name, cond, extra) => {
   chk('peer joined', a.peers === 1, JSON.stringify(a));
 
   const menuAdd = async (re) => {
-    await page.click('#m-add');
-    await page.locator('.menu .item').filter({ hasText: re }).first().click();
+    await page.locator('.gcu-menubar-trigger').filter({ hasText: /^add$/ }).click();
+    await page.locator('.gcu-menu-item').filter({ hasText: re }).first().click();
   };
   await menuAdd(/^box$/);
   await menuAdd(/^label$/);

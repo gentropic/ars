@@ -45,8 +45,8 @@ const chk = (name, cond, extra) => {
 
   // add objects through the real UI — the menubar
   const menuAdd = async (re) => {
-    await page.click('#m-add');
-    await page.locator('.menu .item').filter({ hasText: re }).first().click();
+    await page.locator('.gcu-menubar-trigger').filter({ hasText: /^add$/ }).click();
+    await page.locator('.gcu-menu-item').filter({ hasText: re }).first().click();
   };
   await menuAdd(/^box$/);
   await menuAdd(/^label$/);
@@ -106,15 +106,15 @@ const chk = (name, cond, extra) => {
   // context menu on a tree row: duplicate through the real menu
   const nBefore = await page.evaluate('__studio.store.all().length');
   await page.locator('#tree .obj-row').first().click({ button: 'right' });
-  await page.locator('.menu .item').filter({ hasText: /^duplicate$/ }).click();
+  await page.locator('.gcu-menu-item').filter({ hasText: /^duplicate$/ }).click();
   await page.waitForTimeout(100);
   const nAfter = await page.evaluate('__studio.store.all().length');
   chk('context-menu duplicate adds an item', nAfter === nBefore + 1, nBefore + ' -> ' + nAfter);
 
   // demo scene via the file menu: populates, second toggle removes it cleanly
   const menuFile = async (re) => {
-    await page.click('#m-file');
-    await page.locator('.menu .item').filter({ hasText: re }).first().click();
+    await page.locator('.gcu-menubar-trigger').filter({ hasText: /^file$/ }).click();
+    await page.locator('.gcu-menu-item').filter({ hasText: re }).first().click();
   };
   await menuFile(/demo scene/);
   await page.waitForFunction('__studio.store.all().some(o => o.kind === "mesh")', { timeout: 5000 });

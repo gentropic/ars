@@ -7,6 +7,9 @@
 <!-- vendored 36h12 dictionary (marker rasterization) — classic scripts, AR global -->
 <script src="../vendor/js-aruco2/cv.js"></script>
 <script src="../vendor/js-aruco2/aruco.js"></script>
+<!-- @gcu/menu (Switchboard toolkit): structural + default theme, tokens overridden below -->
+<link rel="stylesheet" href="../vendor/gcu-menu/menu.css">
+<link rel="stylesheet" href="../vendor/gcu-menu/menu-default.css">
 <style>
   :root { color-scheme: dark; --bg: #14181e; --panel: #1b212a; --line: #2a323e;
           --ink: #d8dee9; --dim: #7b8494; --amber: #e8b04b; }
@@ -24,20 +27,22 @@
            border-radius: 4px; padding: 3px 10px; cursor: pointer; }
   button:hover { border-color: var(--amber); color: var(--amber); }
   button.danger { border-color: #7a3a30; color: #d08070; margin-top: 10px; }
-  .mbtn { background: none; border-color: transparent; }
-
-  /* the menu kit (micro's pattern) */
-  .menu { position: absolute; min-width: 180px; background: #1b212a;
-          border: 1px solid var(--line); border-radius: 4px; padding: 4px 0;
-          font: inherit; box-shadow: 0 6px 18px rgba(0,0,0,.5);
-          max-height: 82vh; overflow-y: auto; }
-  .menu .item { padding: 5px 14px; cursor: pointer; color: var(--ink);
-                display: flex; justify-content: space-between; gap: 18px; white-space: nowrap; }
-  .menu .item:hover { background: #232b36; color: var(--amber); }
-  .menu .item.disabled { opacity: .4; cursor: default; }
-  .menu .item.disabled:hover { background: none; color: var(--ink); }
-  .menu .kbd { color: var(--dim); }
-  .menu .sep { height: 1px; margin: 4px 0; background: var(--line); }
+  /* @gcu/menu theme tokens → the studio palette */
+  :root {
+    --ui-bg-raised: var(--panel);
+    --ui-bg-hover: #232b36;
+    --ui-fg: var(--ink);
+    --ui-fg-dim: var(--dim);
+    --ui-fg-error: #d08070;
+    --ui-border: var(--line);
+    --ui-shadow: 0 6px 18px rgba(0,0,0,.5);
+  }
+  .gcu-menubar { display: flex; gap: 2px; }
+  .gcu-menubar-trigger { font: inherit; color: var(--ink); background: none; border: 0;
+                         border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+  .gcu-menubar-trigger:hover, .gcu-menubar-trigger.gcu-menubar-focused,
+  .gcu-menubar-trigger.gcu-menubar-active { background: #232b36; color: var(--amber); }
+  .gcu-menu { font: 13px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; }
 
   #left, #right { background: var(--panel); overflow-y: auto; min-height: 0; }
   #left { border-right: 1px solid var(--line); padding: 8px; }
@@ -90,9 +95,7 @@
 <div id="app">
   <div id="toolbar">
     <span class="brand">ars studio</span>
-    <button id="m-file" class="mbtn">file</button>
-    <button id="m-add" class="mbtn">add</button>
-    <button id="m-view" class="mbtn">view</button>
+    <div id="menubar"></div>
     <span class="spacer"></span>
     <button id="share">share</button>
     <span id="peers"></span>

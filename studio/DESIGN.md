@@ -69,7 +69,7 @@ property, so hiding on the desk hides on the phone — one mental model, the
 phone displays the document. A desk-only staging mode (dim/isolate without
 touching the document) can come later if the need shows up.
 
-**The chrome** (micro's grammar, ported — `menu.js` is micro's menu kit):
+**The chrome** (micro's grammar, on the REAL toolkit — vendored `@gcu/menu`, the Switchboard-tier package; micro itself carries an older inline kit predating it):
 commands live in MENUS — the menubar (file / add / view) and context menus
 (right-click a tree row, an object in the viewport, or empty mat for
 add-at-this-spot) — knobs live in the two permanent panes (tree left,

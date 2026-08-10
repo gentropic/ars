@@ -48,3 +48,9 @@ point clouds) — the engine under micro; here it renders `blocks` layers in the
 studio and the phone viewer via the §3.1 mount contract (webxr/SPEC.md). The
 single `index.js` @gcu/build bundle from the auditable monorepo.
 © Arthur Endlein Correia (GCU).
+
+## @gcu/menu — MIT
+
+Popup menus and menubars (Switchboard UI toolkit tier): the studio's menubar
+and context menus. `index.js` + structural/theme stylesheets from the
+auditable monorepo ext/menu. © GCU.

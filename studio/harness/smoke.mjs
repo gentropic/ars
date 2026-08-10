@@ -43,12 +43,16 @@ const chk = (name, cond, extra) => {
   const statusOk = await page.evaluate('document.getElementById("status").textContent');
   chk('status healthy', !/failed/.test(statusOk), statusOk);
 
-  // add objects through the real UI
-  await page.click('#add-box');
-  await page.click('#add-label');
-  await page.click('#add-axes');
+  // add objects through the real UI — the menubar
+  const menuAdd = async (re) => {
+    await page.click('#m-add');
+    await page.locator('.menu .item').filter({ hasText: re }).first().click();
+  };
+  await menuAdd(/^box$/);
+  await menuAdd(/^label$/);
+  await menuAdd(/^axes$/);
   const kinds = await page.evaluate('__studio.store.all().map(o => o.kind).sort().join(",")');
-  chk('toolbar adds through the store', kinds === 'axes,box,label,layer', kinds);
+  chk('menubar adds through the store', kinds === 'axes,box,label,layer', kinds);
 
   // scene reconciliation: three content nodes
   const nodeCount = await page.evaluate(`(() => {
@@ -86,9 +90,33 @@ const chk = (name, cond, extra) => {
   chk('tombstone holds against stale edit', ro.stillDead);
   chk('project round-trip is stable', ro.n1 === ro.n2 && ro.applied === 0, round);
 
-  // demo scene: one click populates (axes + 4 boxes + label + terrain blob),
-  // a second click removes it cleanly
-  await page.click('#demo');
+  // per-item visibility: a real eye click hides that item everywhere
+  await page.waitForSelector('#tree .obj-row');
+  const eyed = await page.evaluate(`(async () => {
+    document.querySelector('#tree .obj-row .eye').click();
+    await new Promise((r) => setTimeout(r, 100));
+    const { effectiveHidden } = await import('/studio/src/store.js');
+    const hit = __studio.store.all().find((o) => o.kind !== 'layer' && o.hidden === true);
+    const eff = hit && effectiveHidden(__studio.store, hit);
+    if (hit) __studio.store.upsert({ id: hit.id, hidden: false });
+    return { hid: !!hit, eff: !!eff };
+  })()`);
+  chk('per-item eye toggles synced hidden flag', eyed.hid && eyed.eff, JSON.stringify(eyed));
+
+  // context menu on a tree row: duplicate through the real menu
+  const nBefore = await page.evaluate('__studio.store.all().length');
+  await page.locator('#tree .obj-row').first().click({ button: 'right' });
+  await page.locator('.menu .item').filter({ hasText: /^duplicate$/ }).click();
+  await page.waitForTimeout(100);
+  const nAfter = await page.evaluate('__studio.store.all().length');
+  chk('context-menu duplicate adds an item', nAfter === nBefore + 1, nBefore + ' -> ' + nAfter);
+
+  // demo scene via the file menu: populates, second toggle removes it cleanly
+  const menuFile = async (re) => {
+    await page.click('#m-file');
+    await page.locator('.menu .item').filter({ hasText: re }).first().click();
+  };
+  await menuFile(/demo scene/);
   await page.waitForFunction('__studio.store.all().some(o => o.kind === "mesh")', { timeout: 5000 });
   const demo = await page.evaluate(`(() => {
     const s = __studio.store;
@@ -135,7 +163,7 @@ const chk = (name, cond, extra) => {
     JSON.stringify(after.az) !== JSON.stringify(orbit.az) && after.sel === null,
     JSON.stringify({ before: orbit.az, after: after.az, sel: after.sel }));
 
-  await page.click('#demo');
+  await menuFile(/demo scene/);
   await page.waitForTimeout(100);
   const gone = await page.evaluate(
     `__studio.store.byKind('layer').every(l => l.name !== 'demo') &&

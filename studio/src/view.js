@@ -6,6 +6,7 @@
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { build, RENDERABLE } from './objects.js';
 import { createBlocksMount } from './blocks.js';
+import { effectiveHidden } from './store.js';
 
 export function createView(canvas, store, opts = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -139,7 +140,14 @@ export function createView(canvas, store, opts = {}) {
     else if (mode !== 'drag' && !moved && e.button === 0) select(pick(e));
     mode = null; dragId = null; dragOff = null;
   });
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (moved) return;                          // right-DRAG was a pan, not a menu
+    const id = pick(e);
+    const hit = new THREE.Vector3();
+    pointerRay(e).ray.intersectPlane(matPlane, hit);
+    if (api.onContextMenu) api.onContextMenu(id, [hit.x, hit.y, 0], e.clientX, e.clientY);
+  });
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     orbit.dist = Math.min(5, Math.max(0.05, orbit.dist * (e.deltaY > 0 ? 1.12 : 0.89)));
@@ -154,7 +162,6 @@ export function createView(canvas, store, opts = {}) {
 
   // ── store → scene reconciliation ────────────────────────────────────────
   const nodes = new Map();                     // id → { stamp, node }
-  let localVis = () => true;                   // layer-visibility predicate
 
   function reconcile() {
     const live = new Set();
@@ -168,7 +175,7 @@ export function createView(canvas, store, opts = {}) {
         nodes.set(obj.id, { stamp: obj.stamp, node });
         content.add(node);
       }
-      nodes.get(obj.id).node.visible = localVis(obj);
+      nodes.get(obj.id).node.visible = !effectiveHidden(store, obj);
     }
     for (const [id, cur] of nodes) {
       if (!live.has(id)) { content.remove(cur.node); dispose(cur.node); nodes.delete(id); }
@@ -206,7 +213,7 @@ export function createView(canvas, store, opts = {}) {
   let warnedMulti = false;
 
   function drawBlocksUnder() {
-    const all = store.byKind('blocks').filter((o) => localVis(o));
+    const all = store.byKind('blocks').filter((o) => !effectiveHidden(store, o));
     if (all.length > 1 && !warnedMulti) {
       console.warn('ars studio: only ONE blocks layer renders (condenser clear-on-draw — the clear:false upstream debt)');
       warnedMulti = true;
@@ -258,12 +265,14 @@ export function createView(canvas, store, opts = {}) {
       const r = canvas.getBoundingClientRect();
       return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - (v.y + 1) / 2) * r.height };
     },
-    setVisibility(fn) { localVis = fn; reconcile(); },
+    lookAt(p) { orbit.target.set(p[0], p[1], p[2] || 0); applyOrbit(); },
+    refresh() { reconcile(); },
     addStatic(node) { scene.add(node); },
     setPresence, dropPresence,
     blocksStats: () => mount.stats,
     blocksReady: () => mount.ready,
     onSelect: null,
+    onContextMenu: null,
   };
 
   resize(); applyOrbit(); reconcile(); frame();

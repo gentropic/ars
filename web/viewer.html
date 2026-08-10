@@ -56,7 +56,7 @@
 import * as THREE from '../vendor/three/three.module.min.js';
 import { createDetector, detect, markerPose } from './detect.js';
 import { classGate, solveDatum, mat4 } from '../src/main.js';
-import { createStore } from '../studio/src/store.js';
+import { createStore, effectiveHidden } from '../studio/src/store.js';
 import { build, RENDERABLE } from '../studio/src/objects.js';
 import { createSync, APP_ID } from '../studio/src/sync.js';
 import { createXRGround } from './xr-ground.js';
@@ -111,6 +111,8 @@ function reconcile() {
       nodes.set(obj.id, { stamp: obj.stamp, node });
       content.add(node);
     }
+    // visibility is document state — hidden in the studio is hidden here
+    nodes.get(obj.id).node.visible = !effectiveHidden(store, obj);
   }
   for (const [id, cur] of nodes)
     if (!live.has(id)) { content.remove(cur.node); nodes.delete(id); }
@@ -123,7 +125,8 @@ const _bm = new THREE.Matrix4(), _bmi = new THREE.Matrix4(), _bvwi = new THREE.M
 function drawBlocksUnder(projEls, viewWorldEls, eyeArr, fb) {
   if (!blocksMount) blocksMount = createBlocksMount(renderer.getContext(),
     { getBlob: (h) => store.getBlob(h) });
-  const bo = content.visible ? (store.byKind('blocks')[0] || null) : null;
+  const bo = content.visible
+    ? (store.byKind('blocks').filter((o) => !effectiveHidden(store, o))[0] || null) : null;
   const ready = blocksMount.sync(bo);
   if (!bo || !ready) { renderer.autoClear = true; return; }
   const entry = nodes.get(bo.id);

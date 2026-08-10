@@ -24,6 +24,15 @@ export async function sha256(bytes) {
   return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Effective visibility (micro's rule: "children keep their own eyes"):
+// an item is hidden if ITS eye is off OR its layer's eye is off. `hidden`
+// is DOCUMENT state — synced like everything, the phone shows the document.
+export function effectiveHidden(store, obj) {
+  if (obj.hidden) return true;
+  const l = obj.layer && store.get(obj.layer);
+  return !!(l && l.hidden);
+}
+
 export function createStore() {
   const actor = localStorage.getItem(ACTOR_KEY) ||
     (localStorage.setItem(ACTOR_KEY, newActor()), localStorage.getItem(ACTOR_KEY));

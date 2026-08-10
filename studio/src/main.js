@@ -36,17 +36,9 @@ async function boot() {
   initUI(store, view, {
     tree: document.getElementById('tree'),
     inspector: document.getElementById('inspector'),
-    addAxes: document.getElementById('add-axes'),
-    addBox: document.getElementById('add-box'),
-    addLabel: document.getElementById('add-label'),
-    addMesh: document.getElementById('add-mesh'),
-    addImage: document.getElementById('add-image'),
-    addBlocks: document.getElementById('add-blocks'),
-    addLayer: document.getElementById('add-layer'),
-    demo: document.getElementById('demo'),
-    save: document.getElementById('save'),
-    load: document.getElementById('load'),
-    clear: document.getElementById('clear'),
+    mFile: document.getElementById('m-file'),
+    mAdd: document.getElementById('m-add'),
+    mView: document.getElementById('m-view'),
   });
 
   // ── share: create a room, show the QR, stream the scene (stage 2) ──────

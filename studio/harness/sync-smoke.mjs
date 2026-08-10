@@ -55,14 +55,27 @@ const chk = (name, cond, extra) => {
   })()`);
   chk('peer joined', a.peers === 1, JSON.stringify(a));
 
-  await page.click('#add-box');
-  await page.click('#add-label');
+  const menuAdd = async (re) => {
+    await page.click('#m-add');
+    await page.locator('.menu .item').filter({ hasText: re }).first().click();
+  };
+  await menuAdd(/^box$/);
+  await menuAdd(/^label$/);
   await page.waitForTimeout(450);              // debounce 250ms + delivery
   const b = await page.evaluate(`(() => {
     const kinds = window.__vstore.all().map((o) => o.kind).sort().join(',');
     return { kinds };
   })()`);
   chk('scene replicated on change', b.kinds === 'box,label,layer', b.kinds);
+
+  // hidden is document state: hiding on the desk hides on the phone
+  const hid = await page.evaluate(`(async () => {
+    const box = __studio.store.all().find((o) => o.kind === 'box');
+    __studio.store.upsert({ id: box.id, hidden: true });
+    await new Promise((r) => setTimeout(r, 450));
+    return { remote: window.__vstore.get(box.id).hidden === true };
+  })()`);
+  chk('hidden flag replicates to the viewer', hid.remote, JSON.stringify(hid));
 
   const c = await page.evaluate(`(async () => {
     const s = __studio.store;

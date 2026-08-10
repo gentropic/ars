@@ -56,9 +56,26 @@ Binary payloads (meshes, images, block models) are content-addressed **blobs**
 (`missingBlobs`/`getBlob`/`saveBlob`), so big data transfers once and
 deduplicates naturally.
 
-Layer *visibility* is local view state, not document state — hiding a layer on
-the desk must not hide it on the phone. (A future `stage` flag per layer can
-make visibility authorial and synced; not v1.)
+**What a layer IS here** (settled 2026-08-10): a named GROUP of items — an
+organizational unit, not a data binding. In micro a layer IS a dataset; in
+ars, an ITEM is the dataset-sized thing (a `blocks` item ≈ a micro layer) and
+a layer groups items, micro-group style. Both levels carry an eye; effective
+visibility = the item's eye AND its layer's eye (micro's rule: "children keep
+their own eyes").
+
+**Visibility is DOCUMENT state** (revised 2026-08-10 — it was local view
+state in the first cut): `hidden` on items and layers syncs like every other
+property, so hiding on the desk hides on the phone — one mental model, the
+phone displays the document. A desk-only staging mode (dim/isolate without
+touching the document) can come later if the need shows up.
+
+**The chrome** (micro's grammar, ported — `menu.js` is micro's menu kit):
+commands live in MENUS — the menubar (file / add / view) and context menus
+(right-click a tree row, an object in the viewport, or empty mat for
+add-at-this-spot) — knobs live in the two permanent panes (tree left,
+inspector right; unlike micro's toggling panels, ours are fixed).
+dblclick / F2 rename, Delete deletes, `h` toggles the selected eye,
+Escape closes menus.
 
 ## Sync (stage 2 — REVISED 2026-08-10, shipped)
 

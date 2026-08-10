@@ -1,5 +1,14 @@
-// ui.js — layer tree (left), toolbar (top), inspector (right). Imperative
-// re-render on store change; the store is the only state that matters.
+// ui.js — the studio chrome, on micro's grammar: commands live in MENUS
+// (menubar dropdowns + context menus, one kit — menu.js), knobs live in the
+// permanent panes. Left pane: the tree — layers (groups of items, with
+// collapse carets and group eyes) and items (each with ITS OWN eye; effective
+// visibility = both, micro's "children keep their own eyes"). Right pane:
+// the inspector. Visibility is document state: hidden here is hidden on the
+// phone. dblclick / F2 rename, Delete deletes, h toggles the selected eye,
+// right-click anywhere for the object's menu.
+
+import { menuXY, menuAt } from './menu.js';
+import { effectiveHidden } from './store.js';
 
 const mm = (v) => Math.round(v * 1000);
 const fromMm = (v) => (Number(v) || 0) / 1000;
@@ -7,54 +16,53 @@ const deg = (v) => Math.round((v * 180 / Math.PI) * 10) / 10;
 const fromDeg = (v) => (Number(v) || 0) * Math.PI / 180;
 
 export function initUI(store, view, els) {
-  const hiddenLayers = new Set();
-  view.setVisibility((obj) => !hiddenLayers.has(obj.layer));
+  const state = { activeLayer: null, collapsed: new Set() };
 
   const layers = () => store.byKind('layer');
-  const activeLayer = () => {
-    const ls = layers();
-    return (ls.find((l) => l.id === state.activeLayer) || ls[0] || null);
-  };
-  const state = { activeLayer: null };
-
-  function ensureDefaultLayer() {
+  const itemsOf = (lid) => store.all().filter((o) => o.kind !== 'layer' && o.layer === lid);
+  const activeLayer = () => layers().find((l) => l.id === state.activeLayer) || layers()[0] || null;
+  const ensureDefaultLayer = () => {
     if (!layers().length) store.upsert({ id: store.newId(), kind: 'layer', name: 'layer 1' });
-  }
+  };
 
-  // ── toolbar ─────────────────────────────────────────────────────────────
-  function addObject(kind, props = {}, name) {
+  // ── actions ─────────────────────────────────────────────────────────────
+  function addObject(kind, props = {}, name, at) {
     ensureDefaultLayer();
     const obj = store.upsert({
       id: store.newId(), kind, name: name || kind, layer: activeLayer().id,
-      t: [0, 0, 0], props,
+      t: at ? [at[0], at[1], 0] : [0, 0, 0], props,
     });
     view.select(obj.id);
+    return obj;
   }
 
-  els.addAxes.onclick = () => addObject('axes', { size: 0.05 });
-  els.addBox.onclick = () => addObject('box', { w: 0.04, d: 0.04, h: 0.04, solid: true });
-  els.addLabel.onclick = () => addObject('label', { text: 'label', size: 0.02 });
+  function pickFile(accept, fn) {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = accept;
+    inp.onchange = () => inp.files[0] && fn(inp.files[0]);
+    inp.click();
+  }
 
-  els.addMesh.onclick = () => pickFile('.stl', async (file) => {
+  const addMesh = (at) => pickFile('.stl', async (file) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const hash = await store.saveBlob(bytes);
-    addObject('mesh', { blob: hash, fmt: 'stl', unit: 'mm' }, file.name.replace(/\.stl$/i, ''));
+    addObject('mesh', { blob: hash, fmt: 'stl', unit: 'mm' }, file.name.replace(/\.stl$/i, ''), at);
   });
 
-  els.addImage.onclick = () => pickFile('image/*', async (file) => {
+  const addImage = (at) => pickFile('image/*', async (file) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const hash = await store.saveBlob(bytes);
     const img = new Image();
     img.onload = () => {
-      const w = 0.1;                              // 10 cm wide, aspect-true
+      const w = 0.1;
       addObject('image', { blob: hash, w, d: w * img.naturalHeight / img.naturalWidth },
-        file.name.replace(/\.[^.]+$/, ''));
+        file.name.replace(/\.[^.]+$/, ''), at);
       URL.revokeObjectURL(img.src);
     };
     img.src = URL.createObjectURL(new Blob([bytes]));
   });
 
-  els.addBlocks.onclick = () => pickFile('.csv,.txt,.dm', async (file) => {
+  const addBlocks = (at) => pickFile('.csv,.txt,.dm', async (file) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const dm = /\.dm$/i.test(file.name);
     const { discoverBlockModel } = await import('./blocks.js');
@@ -66,62 +74,134 @@ export function initUI(store, view, els) {
     addObject('blocks', {
       blob: hash, dm, chan: d.chan, cols: d.cols, dims: d.dims, count: d.count,
       ramp: 'viridis', cutoff: 0, edges: true, footprint: 0.12,
-    }, file.name.replace(/\.[^.]+$/, ''));
+    }, file.name.replace(/\.[^.]+$/, ''), at);
   });
 
-  els.addLayer.onclick = () => {
-    const l = store.upsert({ id: store.newId(), kind: 'layer', name: 'layer ' + (layers().length + 1) });
-    state.activeLayer = l.id;
-  };
+  const addItems = (at) => [
+    { label: 'axes', action: () => addObject('axes', { size: 0.05 }, null, at) },
+    { label: 'box', action: () => addObject('box', { w: 0.04, d: 0.04, h: 0.04, solid: true }, null, at) },
+    { label: 'label', action: () => addObject('label', { text: 'label', size: 0.02 }, null, at) },
+    { sep: true },
+    { label: 'mesh (stl)…', action: () => addMesh(at) },
+    { label: 'image…', action: () => addImage(at) },
+    { label: 'blocks (csv/dm)…', action: () => addBlocks(at) },
+  ];
 
-  els.demo.onclick = async () => {
-    const { toggleDemoScene } = await import('./demo.js');
-    await toggleDemoScene(store);
-  };
-
-  els.save.onclick = () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([store.exportProject()], { type: 'application/json' }));
-    a.download = 'scene.ars.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
-  els.load.onclick = () => pickFile('.json', async (file) => {
-    store.importProject(await file.text());
-  });
-  els.clear.onclick = () => {
-    if (!confirm('Clear the scene? (removes every object)')) return;
-    for (const o of store.all()) store.remove(o.id);
-  };
-
-  function pickFile(accept, fn) {
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = accept;
-    inp.onchange = () => inp.files[0] && fn(inp.files[0]);
-    inp.click();
+  async function rename(obj) {
+    const v = prompt('name', obj.name || '');
+    if (v != null && v.trim()) store.upsert({ id: obj.id, name: v.trim() });
+  }
+  function toggleHidden(obj) { store.upsert({ id: obj.id, hidden: !obj.hidden }); }
+  function duplicate(obj) {
+    const copy = store.upsert({ ...structuredClone({ ...obj, stamp: undefined }), id: store.newId(),
+      name: (obj.name || obj.kind) + ' copy', t: [obj.t[0] + 0.02, obj.t[1] - 0.02, obj.t[2]] });
+    view.select(copy.id);
+  }
+  function removeLayerDeep(layer) {
+    if (!confirm(`delete layer "${layer.name}" and its ${itemsOf(layer.id).length} item(s)?`)) return;
+    for (const o of itemsOf(layer.id)) store.remove(o.id);
+    store.remove(layer.id);
   }
 
-  // ── layer tree ──────────────────────────────────────────────────────────
+  // ── context menus ───────────────────────────────────────────────────────
+  function itemMenu(obj, x, y) {
+    menuXY(x, y, [
+      { label: obj.hidden ? 'show' : 'hide', kbd: 'h', action: () => toggleHidden(obj) },
+      { label: 'rename…', kbd: 'F2', action: () => rename(obj) },
+      { label: 'duplicate', action: () => duplicate(obj) },
+      { label: 'zoom to', action: () => view.lookAt(obj.t) },
+      { label: 'move to layer', submenu: () => layers().map((l) => ({
+          label: l.name, checked: obj.layer === l.id,
+          action: () => store.upsert({ id: obj.id, layer: l.id }) })) },
+      { sep: true },
+      { label: 'delete', kbd: 'Del', action: () => { store.remove(obj.id); view.select(null); } },
+    ]);
+  }
+  function layerMenu(layer, x, y) {
+    menuXY(x, y, [
+      { label: layer.hidden ? 'show layer' : 'hide layer', action: () => toggleHidden(layer) },
+      { label: 'rename…', kbd: 'F2', action: () => rename(layer) },
+      { label: 'add here', submenu: () => {
+          state.activeLayer = layer.id;
+          return addItems();
+        } },
+      { sep: true },
+      { label: 'delete layer…', action: () => removeLayerDeep(layer) },
+    ]);
+  }
+
+  // ── menubar ─────────────────────────────────────────────────────────────
+  els.mFile.onclick = () => menuAt(els.mFile, [
+    { label: 'new scene…', action: () => {
+        if (!confirm('Clear the scene? (removes every object)')) return;
+        for (const o of store.all()) store.remove(o.id);
+      } },
+    { sep: true },
+    { label: 'open project…', action: () => pickFile('.json', async (f) => store.importProject(await f.text())) },
+    { label: 'save project', action: () => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([store.exportProject()], { type: 'application/json' }));
+        a.download = 'scene.ars.json';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } },
+    { sep: true },
+    { label: 'demo scene', checked: layers().some((l) => l.name === 'demo'),
+      action: async () => { const { toggleDemoScene } = await import('./demo.js'); await toggleDemoScene(store); } },
+  ]);
+
+  els.mAdd.onclick = () => menuAt(els.mAdd, [
+    ...addItems(),
+    { sep: true },
+    { label: 'layer', action: () => {
+        const l = store.upsert({ id: store.newId(), kind: 'layer', name: 'layer ' + (layers().length + 1) });
+        state.activeLayer = l.id;
+      } },
+  ]);
+
+  els.mView.onclick = () => menuAt(els.mView, [
+    { label: 'zoom to mat', action: () => view.lookAt([0, 0, 0]) },
+    { label: 'zoom to selection', disabled: !view.selectedId(),
+      action: () => { const o = store.get(view.selectedId()); if (o) view.lookAt(o.t); } },
+  ]);
+
+  // ── the tree ────────────────────────────────────────────────────────────
+  function eyeEl(obj) {
+    const eye = el('span', 'eye' + (obj.hidden ? ' off' : ''), obj.hidden ? '◌' : '●');
+    eye.title = obj.kind === 'layer' ? 'layer visibility — items keep their own eyes' : 'visibility';
+    eye.onclick = (e) => { e.stopPropagation(); toggleHidden(obj); };
+    return eye;
+  }
+
   function renderTree() {
     const root = els.tree;
     root.textContent = '';
     for (const layer of layers()) {
-      const row = el('div', 'layer-row' + (layer.id === (activeLayer() || {}).id ? ' active' : ''));
-      const eye = el('span', 'eye', hiddenLayers.has(layer.id) ? '◌' : '●');
-      eye.title = 'toggle visibility (local)';
-      eye.onclick = (e) => {
+      const collapsed = state.collapsed.has(layer.id);
+      const items = itemsOf(layer.id);
+      const row = el('div', 'layer-row' + (layer.id === (activeLayer() || {}).id ? ' active' : '')
+                              + (layer.hidden ? ' hidden-row' : ''));
+      const caret = el('span', 'caret', collapsed ? '▸' : '▾');
+      caret.onclick = (e) => {
         e.stopPropagation();
-        hiddenLayers.has(layer.id) ? hiddenLayers.delete(layer.id) : hiddenLayers.add(layer.id);
-        view.setVisibility((obj) => !hiddenLayers.has(obj.layer));
+        collapsed ? state.collapsed.delete(layer.id) : state.collapsed.add(layer.id);
         renderTree();
       };
-      row.append(eye, el('span', 'lname', layer.name));
+      row.append(caret, eyeEl(layer), el('span', 'lname', layer.name),
+                 el('span', 'lcount', String(items.length)));
       row.onclick = () => { state.activeLayer = layer.id; renderTree(); };
+      row.ondblclick = () => rename(layer);
+      row.oncontextmenu = (e) => { e.preventDefault(); layerMenu(layer, e.clientX, e.clientY); };
       root.append(row);
-      for (const obj of store.all().filter((o) => o.kind !== 'layer' && o.layer === layer.id)) {
-        const orow = el('div', 'obj-row' + (view.selectedId() === obj.id ? ' selected' : ''));
-        orow.append(el('span', 'okind', obj.kind), el('span', '', obj.name || obj.id));
+      if (collapsed) continue;
+      for (const obj of items) {
+        const orow = el('div', 'obj-row' + (view.selectedId() === obj.id ? ' selected' : '')
+                                 + (effectiveHidden(store, obj) ? ' hidden-row' : ''));
+        orow.append(eyeEl(obj), el('span', 'okind', obj.kind),
+                    el('span', 'oname', obj.name || obj.id));
         orow.onclick = () => view.select(obj.id);
+        orow.ondblclick = () => rename(obj);
+        orow.oncontextmenu = (e) => { e.preventDefault(); itemMenu(obj, e.clientX, e.clientY); };
         root.append(orow);
       }
     }
@@ -133,7 +213,7 @@ export function initUI(store, view, els) {
     root.textContent = '';
     const id = view.selectedId();
     const obj = id && store.get(id);
-    if (!obj) { root.append(el('div', 'hint', 'select an object — click it in the view or the tree')); return; }
+    if (!obj) { root.append(el('div', 'hint', 'select an item — click it in the view or the tree; right-click for actions')); return; }
 
     root.append(field('name', obj.name || '', (v) => store.upsert({ id, name: v })));
     root.append(selectField('layer', obj.layer, layers().map((l) => [l.id, l.name]),
@@ -216,14 +296,23 @@ export function initUI(store, view, els) {
   store.onChange(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(renderAll); });
   view.onSelect = renderAll;
 
+  // right-click in the viewport: item menu on an object, add-menu on the mat
+  view.onContextMenu = (id, matPoint, x, y) => {
+    if (id) { const o = store.get(id); if (o) { view.select(id); itemMenu(o, x, y); } }
+    else menuXY(x, y, [{ label: 'add at this spot', submenu: addItems(matPoint) },
+                       { label: 'zoom to mat', action: () => view.lookAt([0, 0, 0]) }]);
+  };
+
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Delete' && view.selectedId() && document.activeElement.tagName !== 'INPUT') {
-      store.remove(view.selectedId());
-      view.select(null);
-    }
+    if (document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    const id = view.selectedId();
+    const obj = id && store.get(id);
+    if (e.key === 'Delete' && obj) { store.remove(id); view.select(null); }
+    else if (e.key === 'h' && obj) toggleHidden(obj);
+    else if (e.key === 'F2' && obj) { e.preventDefault(); rename(obj); }
   });
 
   ensureDefaultLayer();
   renderAll();
-  return { renderAll };
+  return { renderAll, addObject };
 }

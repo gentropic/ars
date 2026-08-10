@@ -16,14 +16,28 @@
   #app { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
   #main { display: grid; grid-template-columns: 230px 1fr 250px; min-height: 0; }
 
-  #toolbar { display: flex; gap: 6px; align-items: center; padding: 7px 10px;
-             background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  #toolbar { display: flex; gap: 6px; align-items: center; padding: 5px 10px;
+             background: var(--panel); border-bottom: 1px solid var(--line); }
   #toolbar .brand { color: var(--amber); font-weight: 600; margin-right: 8px; }
-  #toolbar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+  #toolbar .spacer { flex: 1; }
   button { font: inherit; color: var(--ink); background: #232b36; border: 1px solid var(--line);
            border-radius: 4px; padding: 3px 10px; cursor: pointer; }
   button:hover { border-color: var(--amber); color: var(--amber); }
   button.danger { border-color: #7a3a30; color: #d08070; margin-top: 10px; }
+  .mbtn { background: none; border-color: transparent; }
+
+  /* the menu kit (micro's pattern) */
+  .menu { position: absolute; min-width: 180px; background: #1b212a;
+          border: 1px solid var(--line); border-radius: 4px; padding: 4px 0;
+          font: inherit; box-shadow: 0 6px 18px rgba(0,0,0,.5);
+          max-height: 82vh; overflow-y: auto; }
+  .menu .item { padding: 5px 14px; cursor: pointer; color: var(--ink);
+                display: flex; justify-content: space-between; gap: 18px; white-space: nowrap; }
+  .menu .item:hover { background: #232b36; color: var(--amber); }
+  .menu .item.disabled { opacity: .4; cursor: default; }
+  .menu .item.disabled:hover { background: none; color: var(--ink); }
+  .menu .kbd { color: var(--dim); }
+  .menu .sep { height: 1px; margin: 4px 0; background: var(--line); }
 
   #left, #right { background: var(--panel); overflow-y: auto; min-height: 0; }
   #left { border-right: 1px solid var(--line); padding: 8px; }
@@ -33,16 +47,23 @@
 
   h3 { margin: 2px 0 8px; font-size: 12px; color: var(--dim); font-weight: 600;
        text-transform: uppercase; letter-spacing: .08em; }
-  .layer-row { display: flex; gap: 7px; align-items: center; padding: 3px 6px;
-               border-radius: 4px; cursor: pointer; margin-top: 4px; }
+  .layer-row { display: flex; gap: 6px; align-items: center; padding: 3px 6px;
+               border-radius: 4px; cursor: pointer; margin-top: 4px; user-select: none; }
   .layer-row.active { background: #232b36; }
-  .layer-row .lname { font-weight: 600; }
-  .eye { color: var(--amber); width: 14px; text-align: center; }
-  .obj-row { display: flex; gap: 7px; padding: 2px 6px 2px 26px; border-radius: 4px; cursor: pointer;
-             color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .layer-row .lname { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .layer-row .lcount { color: var(--dim); }
+  .caret { color: var(--dim); width: 11px; flex: none; text-align: center; }
+  .eye { color: var(--amber); width: 15px; flex: none; text-align: center; cursor: pointer; }
+  .eye.off { color: var(--dim); }
+  .obj-row { display: flex; gap: 6px; align-items: center; padding: 2px 6px 2px 20px;
+             border-radius: 4px; cursor: pointer; color: var(--ink); user-select: none;
+             white-space: nowrap; overflow: hidden; }
+  .obj-row .oname { flex: 1; overflow: hidden; text-overflow: ellipsis; }
   .obj-row:hover { background: #202834; }
   .obj-row.selected { background: #2c3626; outline: 1px solid #4a5a3a; }
-  .okind { color: var(--dim); }
+  .obj-row.hidden-row .oname, .obj-row.hidden-row .okind,
+  .layer-row.hidden-row .lname { opacity: .45; }
+  .okind { color: var(--dim); flex: none; }
 
   .field { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .field span { width: 64px; color: var(--dim); flex: none; }
@@ -69,21 +90,10 @@
 <div id="app">
   <div id="toolbar">
     <span class="brand">ars studio</span>
-    <button id="add-axes">+ axes</button>
-    <button id="add-box">+ box</button>
-    <button id="add-label">+ label</button>
-    <button id="add-mesh">+ mesh (stl)</button>
-    <button id="add-image">+ image</button>
-    <button id="add-blocks">+ blocks (csv/dm)</button>
-    <span class="sep"></span>
-    <button id="add-layer">+ layer</button>
-    <span class="sep"></span>
-    <button id="demo">demo</button>
-    <span class="sep"></span>
-    <button id="save">save</button>
-    <button id="load">load</button>
-    <button id="clear">clear</button>
-    <span class="sep"></span>
+    <button id="m-file" class="mbtn">file</button>
+    <button id="m-add" class="mbtn">add</button>
+    <button id="m-view" class="mbtn">view</button>
+    <span class="spacer"></span>
     <button id="share">share</button>
     <span id="peers"></span>
   </div>

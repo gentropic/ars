@@ -21,7 +21,12 @@ const POS = () => globalThis.POS;
 
 export function createDetector(opts = {}) {
   if (!AR()) throw new Error('ars/detect: js-aruco2 not loaded — include vendor/js-aruco2/{cv,aruco}.js first');
-  return new (AR().Detector)({ dictionaryName: opts.dictionaryName || 'ARUCO_MIP_36h12' });
+  // maxHammingDistance 4: the dictionary default (tau — 12 for 36h12) admits
+  // ghost detections at hd 10, measured during the reference-mat verification.
+  return new (AR().Detector)({
+    dictionaryName: opts.dictionaryName || 'ARUCO_MIP_36h12',
+    maxHammingDistance: opts.maxHammingDistance ?? 4,
+  });
 }
 
 // Detect markers in an ImageData → [{ id, corners:[{x,y}×4] }].

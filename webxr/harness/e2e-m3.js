@@ -1,7 +1,8 @@
 // ars-m3 END-TO-END harness: loads the REAL ars-m3.html in headless Chrome,
 // stubs the WebXR API (session, frames, camera texture, hit-test, anchors),
 // pumps ~60 frames, and asserts the fused marker pose against ground truth.
-// Geometry: camera at origin looking down -Z; marker (140 mm, id 0) flat on
+// Geometry: camera at origin looking down -Z; marker (140 mm,
+// ARUCO_MIP_36h12 id 7 — high-entropy per the SPEC testing rule) flat on
 // the plane z = -0.5 facing the camera, top edge up. Expected fused pose:
 // rotation = identity, position = (0, 0, -0.5).
 // npm i (playwright, repo root), then: node e2e-m3.js (serves ../reference in-process).
@@ -32,8 +33,9 @@ const STUB = `
   proj[10] = -1.001; proj[11] = -1; proj[14] = -0.02;
   const IDENT = new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
 
-  // camera image: ARUCO id 0 (9 cells: quiet, border, 5x5 payload '1'=white)
-  // centered, black square edge = FY*0.14/0.5 px, top edge up.
+  // camera image: one marker (quiet zone + border + payload, geometry from
+  // dic.markSize) centered, black square edge = FY*0.14/0.5 px, top edge up.
+  const MARKER_ID = 7;                                // high-entropy (SPEC §5 testing rule)
   function makeCameraCanvas(dic){
     const c = document.createElement('canvas'); c.width = CAMW; c.height = CAMH;
     const g = c.getContext('2d');
@@ -42,17 +44,18 @@ const STUB = `
     const WORLDY = window.__WORLDY ?? 0.1;
     const WORLDZ = window.__WORLDZ ?? 0.5;
     const blackPx = FYCAM * 0.14 / WORLDZ;
-    const cell = blackPx / 7, total = cell * 9;
+    const MS = dic.markSize, PAY = MS - 2;            // 36h12: 8 cells black, 6x6 payload
+    const cell = blackPx / MS, total = cell * (MS + 2);
     // marker at WORLD (0, +0.1, -0.5): off-center in frame, so any constant
     // ray bias (the principal-point bug class) breaks the position assert
     const cyPx = CAMH/2 - FYCAM * WORLDY / WORLDZ;
     const x0 = CAMW/2 - total/2, y0 = cyPx - total/2;
     g.fillStyle = '#fff'; g.fillRect(x0, y0, total, total);
-    g.fillStyle = '#000'; g.fillRect(x0 + cell, y0 + cell, cell*7, cell*7);
-    const code = dic.codeList[0];
+    g.fillStyle = '#000'; g.fillRect(x0 + cell, y0 + cell, cell*MS, cell*MS);
+    const code = dic.codeList[MARKER_ID];
     g.fillStyle = '#fff';
-    for (let r = 0; r < 5; r++) for (let q = 0; q < 5; q++)
-      if (code[r*5+q] === '1')
+    for (let r = 0; r < PAY; r++) for (let q = 0; q < PAY; q++)
+      if (code[r*PAY+q] === '1')
         g.fillRect(x0 + (q+2)*cell, y0 + (r+2)*cell, cell+0.5, cell+0.5);
     return c;
   }
@@ -148,8 +151,9 @@ const STUB = `
   };
   window.__initCam = () => {
     const AR = window.AR;
-    window.__camCanvas = makeCameraCanvas(new AR.Dictionary('ARUCO'));
+    window.__camCanvas = makeCameraCanvas(new AR.Dictionary('ARUCO_MIP_36h12'));
   };
+  window.__markerId = MARKER_ID;
 } catch (e) { window.__stubErr = e.message; } })();
 `;
 
@@ -178,8 +182,8 @@ async function runScenario(name, fycam, worldY = 0.1, worldZ = 0.5, msize = 140,
     const a = window.__ars;
     if (window.__stubErr) return { fail: 'stub: ' + window.__stubErr };
     if (!a) return { fail: 'no __ars handle' };
-    const r = a.markerRoots.get(0);
-    if (!r) return { fail: 'marker 0 never rooted', stats: a.stats(),
+    const r = a.markerRoots.get(window.__markerId);
+    if (!r) return { fail: 'marker ' + window.__markerId + ' never rooted', stats: a.stats(),
       hud: document.getElementById('hud-status').textContent + ' | ' +
            document.getElementById('hud-detail').textContent };
     // effective world pose: anchor pose (if any) · node.local

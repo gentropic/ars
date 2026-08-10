@@ -105,8 +105,15 @@ has no console.
 
 ## 5. Epoch 2: the marker pipeline (as shipped in reference/ars-m3.html)
 
-**Detector**: ArUco 5×5 ("ARUCO", 1024 ids) via vendored js-aruco2 + POSIT
-(+ svd.js, all MIT — Falcioni 2020 / Mellado 2011-12; see vendor/).
+**Detector**: ARUCO_MIP_36h12 (250 ids, 6×6 payload, min Hamming 12) via
+vendored js-aruco2 + POSIT (+ svd.js, all MIT — Falcioni 2020 / Mellado
+2011-12; see /vendor/). [Switched 2026-08-10 from classic ARUCO per §8b —
+the June design decision. `maxHammingDistance: 4` is set explicitly (the
+dictionary default tau of 12 admits ghost detections — the binding mat
+finding). Geometry note: black square = 8 cells, not 7. The e2e gate and
+the node benches are green on 36h12; **phone re-verification pending** —
+until then the m3 file is e2e-verified, not phone-verified, for this one
+change.]
 
 **Camera tap** (async, off the critical path): XRWebGLBinding.getCameraImage
 → GPU blit to a DETECT_SCALE (0.30) FBO → readPixels into a PBO + fenceSync
@@ -165,35 +172,42 @@ BEFORE the space is dropped (an anchor-local matrix on a world root renders
 at the session origin). Rotation gaps > 30° snap instead of blending —
 element-wise interpolation between distant rotations is not a rotation.
 
-**Marker sheets**: assets/ars-marker-id0.pdf — 140 mm black square (the
-size entered = the BLACK square), 100 mm verification ruler, print at 100%.
-The size field default matches the PDF and persists in localStorage; the
-session status announces the active size. TESTING RULE: id 0 is
-mirror-invariant and masked three orientation bugs — prefer a high-entropy
-id for diagnosis; id 0 remains fine for production use.
+**Marker sheets**: print sources for the live 36h12 dictionary: the
+in-page "show marker" (generateSVG, id 0), /web/markers.html (the default
+36h12 set), or assets/ars-mat-a4.pdf PAGE 2 (the 36h12 constellation mat).
+assets/ars-marker-id0.pdf is the CLASSIC-dictionary sheet — it no longer
+detects under the shipped config (see the legacy note in the field-note
+section). The size entered = the BLACK square; the size field persists in
+localStorage; the session status announces the active size. TESTING RULE
+(kept from the classic era, still good practice): prefer a high-entropy id
+for diagnosis — classic id 0 was mirror-invariant and masked three
+orientation bugs; 36h12's Hamming-12 floor kills that pathology class.
 
 ## 5b. Detector characterization (benchmarked, node, vendored js-aruco2)
 
 Synthetic 886×1920 frames (S24+ XRCamera geometry, fy≈1786 px), box-downscaled
 to the readback resolution, median of 15 runs. Node times; the phone runs the
-same code ~2.5× slower (measured 12.8 ms on-device vs 4.9 ms here at 0.30).
-There is NO homegrown GCU marker detector — @gcu/qr is encode-only by design
-("scanning is the phone's native camera") — so js-aruco2 is the only detection
-in the GCU orbit and these are its numbers.
+same code ~2.5× slower (measured 12.8 ms on-device vs 4.9 ms here at 0.30,
+classic-era numbers). There is NO homegrown GCU marker detector — @gcu/qr is
+encode-only by design ("scanning is the phone's native camera") — so js-aruco2
+is the only detection in the GCU orbit and these are its numbers.
+[Re-measured 2026-08-10 on ARUCO_MIP_36h12 + maxHammingDistance 4, the
+shipped config. The finer 8-cell grid did NOT shrink the envelope, and
+detection got FASTER — the id lookup scans 250 codes, not 1024.]
 
 - **Scale sweep** (140 mm @ 0.45 m, sharp): detects cleanly from scale 0.15
-  (83 px marker, 3.0 ms) to 0.50 (12.4 ms); cost ≈ linear in pixels; corner
-  center error ≤ 0.7 px at every scale. The shipped 0.30 (4.9 ms node /
-  ~13 ms phone) is conservative; **0.20–0.25 is a valid cost cut** when
-  working ≤ 1 m.
+  (83 px marker, 1.8 ms) to 0.50 (7.0 ms); cost ≈ linear in pixels; corner
+  center error ≤ 0.7 px at every scale. The shipped 0.30 (3.2 ms node) is
+  conservative; **0.20–0.25 is a valid cost cut** when working ≤ 1 m.
 - **Range envelope** (scale 0.30, 140 mm): detects to **1.5 m** (50 px
-  marker); fails at 2.0 m (38 px). Range scales with marker size and
-  DETECT_SCALE — bigger print or higher scale for room-sized frames.
+  marker); fails at 2.0 m (38 px) — identical to the classic envelope.
+  Range scales with marker size and DETECT_SCALE — bigger print or higher
+  scale for room-sized frames.
 - **Blur**: tolerant to box-blur radius 4 in readback px at 0.45 m (synthetic
   high-contrast; real motion blur is harsher — the edge-ratio sighting gate
   remains the real defense).
-- **Multi-marker**: four markers in-frame at 1.2 m: all found, 7.4 ms, max
-  center error 0.8 px — multi-root and the shared-frame epoch pay ~1.5× a
+- **Multi-marker**: four markers in-frame at 1.2 m: all found, 5.2 ms, max
+  center error 0.7 px — multi-root and the shared-frame epoch pay ~1.5× a
   single detection, not 4×.
 - Bench script: `harness/bench.cjs` (rerunnable; extend for new devices).
 - Field caveat: keep testing with high-entropy ids (id 7+); id 0 is
@@ -240,7 +254,15 @@ removes it is a JOINT constellation solve over all corners at once
 the May 2026 stack plan, the point where written code would genuinely
 supersede the vendored pose estimator.
 
-### Field note: id 0 is hand-drawable
+### Field note: id 0 is hand-drawable [CLASSIC DICTIONARY — legacy]
+
+[This whole section analyzes the CLASSIC ARUCO dictionary. Since the
+2026-08-10 switch, the shipped m3 config no longer detects these markers —
+to use them, configure the detector with dictionaryName 'ARUCO'. The
+stripe-marker search (hand-drawable, strip-constructible) has NOT been
+redone for ARUCO_MIP_36h12; assets/ars-marker-id0.pdf and
+assets/ars-marker-341.stl stay in the tree as the classic field kit until
+someone runs the equivalent 36h12 analysis.]
 
 The id-0 duality, resolved: worst TEST marker (mirror-invariant — masked three
 orientation bugs; test with busy ids), best FIELD marker (one bar; cannot be
@@ -269,16 +291,17 @@ hd 0).
 ### Reference mat (assets/ars-mat-a4.pdf + ars-mat-manifest.json)
 
 Two-page A4 constellation mat: four 80 mm markers (ids 7/23/98/133) at
-(±55, ±85) mm from a printed origin cross — page 1 in classic ARUCO (works
-with today's ars-m3), page 2 in ARUCO_MIP_36h12 (the post-merge dictionary),
+(±55, ±85) mm from a printed origin cross — page 2 in ARUCO_MIP_36h12 (the
+LIVE page since the dictionary switch), page 1 in classic ARUCO (legacy),
 same ids and layout. The manifest carries matPose translations in metres for
 solveDatum. Both pages detector-verified: exactly 4 detections, correct ids,
 centers within 0.25 mm of survey. Two findings from its own verification,
-binding on the merge: (1) **set `maxHammingDistance: 4`** — the js-aruco2
-default (dictionary tau, 12 for 36h12) admits ghost detections at hd 10, and
-the repo's `createDetector` currently inherits that default; (2) keep text
-and any ink out of quiet zones — a label 0.6 mm from the quiet-zone edge
-contaminated the contour and split one marker into two warped candidates.
+binding on the merge — both now APPLIED (2026-08-10): (1) **set
+`maxHammingDistance: 4`** — the js-aruco2 default (dictionary tau, 12 for
+36h12) admits ghost detections at hd 10; m3's detector and the repo's
+`createDetector` both set 4 explicitly now; (2) keep text and any ink out of
+quiet zones — a label 0.6 mm from the quiet-zone edge contaminated the
+contour and split one marker into two warped candidates.
 
 ## 6. Verification law
 
@@ -338,11 +361,14 @@ THIS package is the other half — the WebXR device edge the repo's roadmap name
   `solveDatum`; the fused T_rig replaces per-marker anchoring (one anchor for
   the datum, content hung in mat space).
 - `solveRigid` replaces the m3 ad-hoc basis (§5c numbers).
-- **OPEN (Arthur's call): switch m3 to ARUCO_MIP_36h12** — the June decision;
-  Hamming 12 vs the base dictionary's 3; retroactively kills the id-0
-  mirror-invariance pathology that masked three orientation bugs. Needs a
-  regenerated marker PDF + harness geometry parameterized from `dic.markSize`
-  (8×8 bits → black square = 8 cells, not 7).
+- **DONE (2026-08-10, Arthur's call): m3 switched to ARUCO_MIP_36h12** — the
+  June decision; Hamming 12 vs the base dictionary's 3; retroactively kills
+  the id-0 mirror-invariance pathology that masked three orientation bugs.
+  Harness geometry is parameterized from `dic.markSize`; the e2e runs id 7;
+  print sources are the in-page generator, /web/markers.html, and the mat
+  PDF page 2 (no regenerated single-marker PDF — the classic id-0 sheet
+  stays as the legacy field kit). e2e + benches green; phone re-verify
+  pending.
 - The two bench scripts in harness/ document the seam; bench-datum and
   bench-vendored-vs-written import @gcu/ars — run them with the repo checked
   out (see harness header comments).

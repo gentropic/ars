@@ -18,7 +18,10 @@ function makeFrame() {
   return { width: CAMW, height: CAMH, data: d };
 }
 function drawMarker(frame, dic, id, cxPx, cyPx, blackPx) {
-  const cell = blackPx / 7, total = cell * 9, code = dic.codeList[id];
+  // geometry from the dictionary: black square = markSize cells (36h12: 8),
+  // payload = markSize-2 (6x6), plus a one-cell quiet zone each side
+  const MS = dic.markSize, PAY = MS - 2;
+  const cell = blackPx / MS, total = cell * (MS + 2), code = dic.codeList[id];
   const x0 = cxPx - total / 2, y0 = cyPx - total / 2;
   const put = (x, y, v) => {
     if (x < 0 || y < 0 || x >= CAMW || y >= CAMH) return;
@@ -27,9 +30,9 @@ function drawMarker(frame, dic, id, cxPx, cyPx, blackPx) {
   for (let py = 0; py < total; py++) for (let px = 0; px < total; px++) {
     const cx = Math.floor(px / cell), cy = Math.floor(py / cell);
     let v = 255;
-    if (cx >= 1 && cx < 8 && cy >= 1 && cy < 8) v = 0;
+    if (cx >= 1 && cx < MS + 1 && cy >= 1 && cy < MS + 1) v = 0;
     const bx = cx - 2, by = cy - 2;
-    if (bx >= 0 && bx < 5 && by >= 0 && by < 5) v = code[by * 5 + bx] === '1' ? 255 : 0;
+    if (bx >= 0 && bx < PAY && by >= 0 && by < PAY) v = code[by * PAY + bx] === '1' ? 255 : 0;
     put(Math.round(x0 + px), Math.round(y0 + py), v);
   }
 }
@@ -66,10 +69,11 @@ function boxBlur(img, r) {                        // separable box blur radius r
 const median = (xs) => { const s = [...xs].sort((p, q) => p - q); return s[s.length >> 1]; };
 
 // ── the runs ────────────────────────────────────────────────────────────
-const dic = new AR.Dictionary('ARUCO');
+const dic = new AR.Dictionary('ARUCO_MIP_36h12');
 const REPS = 15;
 function bench(img, expectIds, expectCenters, scale) {
-  const det = new AR.Detector({ dictionaryName: 'ARUCO' });
+  // the shipped m3 config: 36h12 + maxHammingDistance 4 (ghost-detection guard)
+  const det = new AR.Detector({ dictionaryName: 'ARUCO_MIP_36h12', maxHammingDistance: 4 });
   const times = [];
   let markers = [];
   for (let i = 0; i < REPS; i++) {

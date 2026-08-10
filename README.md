@@ -74,6 +74,11 @@ Done:
   pipeline (camera-access → ArUco → ARCore hit-test fusion → world-anchored roots),
   all **phone-verified** (S24+); its own spec, benches, and a WebXR-stub e2e harness
   live in `webxr/`. The `camera-access` spike (§7.4) is thereby validated on-device.
+- **Dictionary switch** — m3 now runs **ARUCO_MIP_36h12** (the June design decision;
+  Hamming 12, kills the id-0 mirror pathology) with `maxHammingDistance: 4` set
+  explicitly here and in `web/detect.js` (ghost-detection guard, the binding mat
+  finding). e2e + benches green; detector envelope unchanged, detection faster.
+  *Phone re-verification of this one change still owed.*
 
 Next (the §8b reconciliation — `webxr/SPEC.md` is the working spec):
 
@@ -82,8 +87,6 @@ Next (the §8b reconciliation — `webxr/SPEC.md` is the working spec):
   (one anchor for the datum, content hung in mat space). `solveRigid` replaces
   the m3 ad-hoc basis. `webxr/harness/e2e-m3.js` is the merge gate: both
   scenarios must stay green.
-- **Dictionary switch to ARUCO_MIP_36h12** (open decision) — the June design's
-  choice; needs regenerated marker PDFs and harness geometry from `dic.markSize`.
 - **ChArUco intrinsics (§3.2)** — recover real focal/principal point for accurate metric
   depth (the current focal = frame-width is a heuristic; orientation is already correct).
 - **Anchors (optional, Path A)** — WebXR *local* anchors to steady the datum between

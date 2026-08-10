@@ -108,8 +108,15 @@ Next:
   design: the printed datum + peer sync are the cross-device shared reference.
 - **Sync (§9)** — authority/viewport session over `@gcu/sync` (already built).
 
-To ship as a standalone viewer **and** an Auditable Works surface from this one repo;
-deployed over GitHub Pages (https = the secure context WebXR/`getUserMedia` require).
+Deployed over GitHub Pages (https = the secure context WebXR/`getUserMedia` require):
+
+- **studio** — https://gentropic.org/ars/studio/
+- **phone viewer** (mat-window, opened by the studio's share QR) —
+  https://gentropic.org/ars/web/viewer.html
+- **WebXR m3** (Path A, Android/ARCore) — https://gentropic.org/ars/webxr/reference/ars-m3.html
+- printable mat — https://gentropic.org/ars/webxr/assets/ars-mat-a4.pdf (page 2, print at 100%)
+
+Still to ship from this repo: the Auditable Works surface.
 
 ## Develop
 

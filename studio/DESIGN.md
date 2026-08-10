@@ -76,7 +76,14 @@ commands live in MENUS — the menubar (file / add / view) and context menus
 add-at-this-spot) — knobs live in the two permanent panes (tree left,
 inspector right; unlike micro's toggling panels, ours are fixed).
 dblclick / F2 rename, Delete deletes, `h` toggles the selected eye,
-Escape closes menus.
+Escape closes menus / deselects. **Undo/redo** (Ctrl+Z / Ctrl+Y, edit menu):
+gesture-grouped snapshots — a change after >400 ms of quiet opens a new
+history entry, so a 60 fps drag is ONE undo step; restore re-stamps fresh so
+peers converge like any edit. **Arrows nudge** the selection on the mm grid
+(1 mm; Shift 10 mm; PgUp/PgDn in z), drags SNAP to the mm grid, Ctrl+D
+duplicates. View presets: plan (top) / oblique / zoom-to. The **status bar**
+is live: selection @ mm, item count, and the condenser mount state — a
+failing block-model load shows there in red, never only in the console.
 
 ## Sync (stage 2 — REVISED 2026-08-10, shipped)
 

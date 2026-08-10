@@ -130,7 +130,8 @@ export function createView(canvas, store, opts = {}) {
     } else if (mode === 'drag' && dragOff) {
       if (pointerRay(e).ray.intersectPlane(dragOff.plane, planeHit)) {
         const obj = store.get(dragId);
-        if (obj) store.upsert({ id: dragId, t: [planeHit.x + dragOff.x, planeHit.y + dragOff.y, obj.t[2]] });
+        const mm = (v) => Math.round(v * 1000) / 1000;    // snap to the mm grid
+        if (obj) store.upsert({ id: dragId, t: [mm(planeHit.x + dragOff.x), mm(planeHit.y + dragOff.y), obj.t[2]] });
       }
     }
   });
@@ -267,12 +268,18 @@ export function createView(canvas, store, opts = {}) {
       const r = canvas.getBoundingClientRect();
       return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - (v.y + 1) / 2) * r.height };
     },
-    lookAt(p) { orbit.target.set(p[0], p[1], p[2] || 0); applyOrbit(); },
+    lookAt(p, dist) {
+      orbit.target.set(p[0], p[1], p[2] || 0);
+      if (dist) orbit.dist = dist;
+      applyOrbit();
+    },
+    setOrbit(o) { Object.assign(orbit, o); applyOrbit(); },
     refresh() { reconcile(); },
     addStatic(node) { scene.add(node); },
     setPresence, dropPresence,
     blocksStats: () => mount.stats,
     blocksReady: () => mount.ready,
+    blocksError: () => mount.error,
     onSelect: null,
     onContextMenu: null,
   };

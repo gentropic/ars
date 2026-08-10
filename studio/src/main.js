@@ -37,6 +37,7 @@ async function boot() {
     tree: document.getElementById('tree'),
     inspector: document.getElementById('inspector'),
     menubar: document.getElementById('menubar'),
+    status: document.getElementById('status'),
   });
 
   // ── share: create a room, show the QR, stream the scene (stage 2) ──────
@@ -67,8 +68,6 @@ async function boot() {
   document.getElementById('share-close').onclick = () =>
     document.getElementById('share-overlay').classList.remove('open');
 
-  document.getElementById('status').textContent =
-    'mat space · mm-true · drag objects on the sheet · autosaving locally';
   window.__studio = { store, view, createSync };  // harness handle
 }
 

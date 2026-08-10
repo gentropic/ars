@@ -111,6 +111,57 @@ const chk = (name, cond, extra) => {
   const nAfter = await page.evaluate('__studio.store.all().length');
   chk('context-menu duplicate adds an item', nAfter === nBefore + 1, nBefore + ' -> ' + nAfter);
 
+  // undo/redo: gesture-grouped history driven through the real key handler
+  const undoRes = await page.evaluate(`(async () => {
+    const s = __studio.store;
+    await new Promise((r) => setTimeout(r, 500));         // close the previous gesture
+    const n0 = s.all().length;
+    s.upsert({ id: s.newId(), kind: 'box', name: 'undo-me', layer: s.byKind('layer')[0].id,
+               t: [0.09, 0, 0], props: { w: 0.02, d: 0.02, h: 0.02, solid: true } });
+    const n1 = s.all().length;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }));
+    await new Promise((r) => setTimeout(r, 100));
+    const n2 = s.all().length;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true }));
+    await new Promise((r) => setTimeout(r, 100));
+    const n3 = s.all().length;
+    return { n0, n1, n2, n3 };
+  })()`);
+  chk('undo/redo round-trip (Ctrl+Z / Ctrl+Y)',
+    undoRes.n1 === undoRes.n0 + 1 && undoRes.n2 === undoRes.n0 && undoRes.n3 === undoRes.n1,
+    JSON.stringify(undoRes));
+
+  // arrow nudge: 1 mm, Shift = 10 mm, on the mm grid
+  const nudge = await page.evaluate(`(() => {
+    const s = __studio.store;
+    const box = s.all().find((o) => o.name === 'undo-me');
+    __studio.view.select(box.id);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', shiftKey: true }));
+    const t = s.get(box.id).t.slice();
+    return t;
+  })()`);
+  chk('arrow nudge (1 mm / shift 10 mm)',
+    Math.abs(nudge[0] - 0.091) < 1e-9 && Math.abs(nudge[1] - 0.01) < 1e-9, JSON.stringify(nudge));
+
+  // drag snaps to the mm grid
+  const dragFrom = await page.evaluate(`(() => {
+    const box = __studio.store.all().find((o) => o.name === 'undo-me');
+    const p = __studio.view.worldToScreen([box.t[0], box.t[1], 0.01]);
+    return { id: box.id, x: p.x, y: p.y };
+  })()`);
+  await page.mouse.move(dragFrom.x, dragFrom.y);
+  await page.mouse.down();
+  await page.mouse.move(dragFrom.x - 37, dragFrom.y + 13, { steps: 6 });
+  await page.mouse.up();
+  const snapped = await page.evaluate(`(() => {
+    const t = __studio.store.get('${dragFrom.id}').t;
+    __studio.view.select(null);
+    __studio.store.remove('${dragFrom.id}');
+    return t.map((v) => Math.abs(v * 1000 - Math.round(v * 1000)));
+  })()`);
+  chk('drag snaps to the mm grid', snapped.every((r) => r < 1e-6), JSON.stringify(snapped));
+
   // demo scene via the file menu: populates, second toggle removes it cleanly
   const menuFile = async (re) => {
     await page.locator('.gcu-menubar-trigger').filter({ hasText: /^file$/ }).click();
@@ -301,6 +352,20 @@ const chk = (name, cond, extra) => {
   const lasStats = await waitDrawn(400);
   chk('las point cloud loads + draws', las.count === 400 && lasStats.drawn > 0,
     JSON.stringify({ las, lasStats }));
+
+  // a garbage blob must FAIL VISIBLY — the status bar carries the error
+  await clearMount();
+  await page.evaluate(`(async () => {
+    const s = __studio.store;
+    const junk = crypto.getRandomValues(new Uint8Array(512));
+    const hash = await s.saveBlob(junk);
+    s.upsert({ id: s.newId(), kind: 'blocks', name: 'garbage', layer: s.byKind('layer')[0].id,
+      t: [0, 0, 0], props: { blob: hash, chan: null, cols: [], dims: [1, 1, 1], count: 0, footprint: 0.1 } });
+  })()`);
+  await page.waitForFunction(
+    `document.getElementById('status').textContent.includes('⚠')`, { timeout: 20000 });
+  chk('block-model load error surfaces in the status bar', true);
+  await clearMount();
 
   // PLY mesh (ascii) and a minimal GLB — three-side loaders via the import map
   const meshKinds = await page.evaluate(`(async () => {

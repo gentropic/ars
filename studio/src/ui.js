@@ -24,6 +24,32 @@ const fromDeg = (v) => (Number(v) || 0) * Math.PI / 180;
 export function initUI(store, view, els) {
   const state = { activeLayer: null, collapsed: new Set() };
 
+  // ── undo/redo: gesture-grouped snapshots. A change after >400 ms of quiet
+  // opens a new history entry (so a 60 fps drag coalesces to ONE undo step);
+  // restore re-stamps everything fresh, so peers converge like any edit ────
+  const history = [], future = [];
+  let prevState = store.exportBundle(), lastChangeAt = 0, restoring = false;
+  store.onChange(() => {
+    if (restoring) return;
+    const now = performance.now();
+    if (now - lastChangeAt > 400) {
+      history.push(prevState);
+      future.length = 0;
+      if (history.length > 60) history.shift();
+    }
+    lastChangeAt = now;
+    prevState = store.exportBundle();
+  });
+  function doRestore(bundle) {
+    restoring = true;
+    store.restoreBundle(bundle);
+    restoring = false;
+    prevState = store.exportBundle();
+    lastChangeAt = 0;
+  }
+  function undo() { if (history.length) { future.push(store.exportBundle()); doRestore(history.pop()); } }
+  function redo() { if (future.length) { history.push(store.exportBundle()); doRestore(future.pop()); } }
+
   const layers = () => store.byKind('layer');
   const itemsOf = (lid) => store.all().filter((o) => o.kind !== 'layer' && o.layer === lid);
   const activeLayer = () => layers().find((l) => l.id === state.activeLayer) || layers()[0] || null;
@@ -175,6 +201,15 @@ export function initUI(store, view, els) {
       { label: 'demo scene', checked: layers().some((l) => l.name === 'demo'),
         action: async () => { const { toggleDemoScene } = await import('./demo.js'); await toggleDemoScene(store); } },
     ] },
+    { label: 'edit', items: () => [
+      { label: 'undo', shortcut: 'Ctrl+Z', disabled: !history.length, action: undo },
+      { label: 'redo', shortcut: 'Ctrl+Y', disabled: !future.length, action: redo },
+      '---',
+      { label: 'duplicate', shortcut: 'Ctrl+D', disabled: !view.selectedId(),
+        action: () => { const o = store.get(view.selectedId()); if (o) duplicate(o); } },
+      { label: 'delete', shortcut: 'Del', danger: true, disabled: !view.selectedId(),
+        action: () => { store.remove(view.selectedId()); view.select(null); } },
+    ] },
     { label: 'add', items: () => [
       ...addItems(),
       '---',
@@ -184,9 +219,12 @@ export function initUI(store, view, els) {
         } },
     ] },
     { label: 'view', items: () => [
-      { label: 'zoom to mat', action: () => view.lookAt([0, 0, 0]) },
+      { label: 'plan (top)', action: () => { view.lookAt([0, 0, 0]); view.setOrbit({ theta: -Math.PI / 2, phi: 1.49, dist: 0.5 }); } },
+      { label: 'oblique', action: () => { view.lookAt([0, 0, 0]); view.setOrbit({ theta: -Math.PI / 3, phi: 0.9, dist: 0.55 }); } },
+      '---',
+      { label: 'zoom to mat', action: () => view.lookAt([0, 0, 0], 0.55) },
       { label: 'zoom to selection', disabled: !view.selectedId(),
-        action: () => { const o = store.get(view.selectedId()); if (o) view.lookAt(o.t); } },
+        action: () => { const o = store.get(view.selectedId()); if (o) view.lookAt(o.t, 0.25); } },
     ] },
   ]);
   bar.on('action', (a) => { if (typeof a === 'function') a(); });
@@ -275,6 +313,11 @@ export function initUI(store, view, els) {
         obj.props.count.toLocaleString() + ' points · las'));
     }
     if (obj.kind === 'image') { prop('w', 'w (m)'); prop('d', 'd (m)'); }
+    if (obj.kind === 'blocks' || obj.kind === 'points') {
+      const err = view.blocksError && view.blocksError();
+      if (err) root.append(el('div', 'hint err', '⚠ ' + err));
+      else if (!view.blocksReady()) root.append(el('div', 'hint', 'loading…'));
+    }
     if (obj.kind === 'blocks') {
       if (obj.props.blob && obj.props.cols && obj.props.cols.length) {
         root.append(selectField('color by', String(obj.props.chan),
@@ -328,9 +371,33 @@ export function initUI(store, view, els) {
     return n;
   }
 
+  // ── the status bar: live selection, counts, and the condenser mount's
+  // state — a failing block-model load must be VISIBLE, not a console line ──
+  function updateStatus() {
+    if (!els.status) return;
+    const items = store.all().filter((x) => x.kind !== 'layer');
+    const parts = [];
+    if (!items.length) {
+      els.status.textContent = 'empty scene — add ▸ box, or file ▸ demo scene · drag on the sheet · right-click for actions';
+      els.status.style.color = '';
+      return;
+    }
+    const o = view.selectedId() && store.get(view.selectedId());
+    if (o) parts.push(`${o.kind} “${o.name || o.id}” @ ${mm(o.t[0])}, ${mm(o.t[1])}, ${mm(o.t[2])} mm`);
+    parts.push(items.length + (items.length === 1 ? ' item' : ' items'));
+    const mountObj = [...store.byKind('blocks'), ...store.byKind('points')][0];
+    const err = view.blocksError && view.blocksError();
+    if (mountObj && err) parts.push('⚠ ' + (mountObj.name || 'model') + ': ' + err);
+    else if (mountObj && !view.blocksReady()) parts.push('loading ' + (mountObj.name || 'model') + '…');
+    else if (mountObj && view.blocksStats()) parts.push(view.blocksStats().drawn.toLocaleString() + ' drawn');
+    els.status.textContent = parts.join(' · ');
+    els.status.style.color = err ? '#d08070' : '';
+  }
+  setInterval(updateStatus, 1000);              // mount state changes without store events
+
   // ── wiring ──────────────────────────────────────────────────────────────
   let raf = 0;
-  const renderAll = () => { renderTree(); renderInspector(); };
+  const renderAll = () => { renderTree(); renderInspector(); updateStatus(); };
   store.onChange(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(renderAll); });
   view.onSelect = renderAll;
 
@@ -345,9 +412,24 @@ export function initUI(store, view, els) {
     if (document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
     const id = view.selectedId();
     const obj = id && store.get(id);
-    if (e.key === 'Delete' && obj) { store.remove(id); view.select(null); }
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+    else if (ctrl && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
+    else if (ctrl && e.key.toLowerCase() === 'd' && obj) { e.preventDefault(); duplicate(obj); }
+    else if (e.key === 'Delete' && obj) { store.remove(id); view.select(null); }
     else if (e.key === 'h' && obj) toggleHidden(obj);
     else if (e.key === 'F2' && obj) { e.preventDefault(); rename(obj); }
+    else if (e.key === 'Escape') view.select(null);
+    else if (obj && (e.key.startsWith('Arrow') || e.key === 'PageUp' || e.key === 'PageDown')) {
+      // nudge on the mm grid: arrows in the mat plane, PgUp/PgDn in z;
+      // Shift = 10 mm steps
+      e.preventDefault();
+      const s = e.shiftKey ? 0.01 : 0.001;
+      const d = { ArrowLeft: [-s, 0, 0], ArrowRight: [s, 0, 0], ArrowUp: [0, s, 0],
+                  ArrowDown: [0, -s, 0], PageUp: [0, 0, s], PageDown: [0, 0, -s] }[e.key];
+      const mm = (v) => Math.round(v * 1000) / 1000;
+      store.upsert({ id, t: [mm(obj.t[0] + d[0]), mm(obj.t[1] + d[1]), mm(obj.t[2] + d[2])] });
+    }
   });
 
   ensureDefaultLayer();

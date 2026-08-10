@@ -79,6 +79,22 @@ export function createStore() {
       emit();
     },
 
+    // Restore an earlier snapshot EXACTLY (undo/redo). Every restored object
+    // gets a FRESH stamp — locally this replaces without LWW interference,
+    // and on the wire peers converge to the restored state like any edit.
+    // Blobs are never dropped, so restored references always resolve.
+    restoreBundle(bundle) {
+      const target = new Map((bundle.objects || []).map((o) => [o.id, o]));
+      for (const id of [...objects.keys()]) {
+        if (!target.has(id)) { objects.delete(id); tombs.set(id, tick()); }
+      }
+      for (const o of target.values()) {
+        objects.set(o.id, { ...o, stamp: tick() });
+        tombs.delete(o.id);
+      }
+      emit();
+    },
+
     // ── @gcu/sync store contract ─────────────────────────────────────────
     exportBundle() {
       return {

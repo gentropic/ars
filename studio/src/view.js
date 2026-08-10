@@ -68,6 +68,11 @@ export function createView(canvas, store, opts = {}) {
 
   // ── picking / dragging ──────────────────────────────────────────────────
   const ray = new THREE.Raycaster();
+  // three's default Line/Points pick threshold is 1 WORLD UNIT — a meter. In a
+  // 0.3 m scene the axes lines would swallow every click (and with it, orbit,
+  // since picking wins pointerdown). Millimeters, like everything else here.
+  ray.params.Line.threshold = 0.003;
+  ray.params.Points.threshold = 0.003;
   const ndc = new THREE.Vector2();
   const matPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   let selected = null;                         // object id
@@ -203,8 +208,14 @@ export function createView(canvas, store, opts = {}) {
 
   const api = {
     scene,
+    camera,
     select,
     selectedId: () => selected,
+    worldToScreen(p) {                         // client coords of a world point
+      const v = new THREE.Vector3(p[0], p[1], p[2]).project(camera);
+      const r = canvas.getBoundingClientRect();
+      return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - (v.y + 1) / 2) * r.height };
+    },
     setVisibility(fn) { localVis = fn; reconcile(); },
     addStatic(node) { scene.add(node); },
     setPresence, dropPresence,

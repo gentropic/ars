@@ -42,6 +42,7 @@ async function boot() {
     addMesh: document.getElementById('add-mesh'),
     addImage: document.getElementById('add-image'),
     addLayer: document.getElementById('add-layer'),
+    demo: document.getElementById('demo'),
     save: document.getElementById('save'),
     load: document.getElementById('load'),
     clear: document.getElementById('clear'),

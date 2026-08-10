@@ -135,11 +135,14 @@ const builders = {
 export const RENDERABLE = new Set(Object.keys(builders));
 
 export function build(obj, store) {
-  const node = builders[obj.kind](obj, store);
+  // The object transform lives on a WRAPPER group — builders own their inner
+  // node's transform (a sprite's scale IS its size; stomping it once turned
+  // every label into a 1×1 m billboard shading half the scene).
+  const node = new THREE.Group();
+  node.add(builders[obj.kind](obj, store));
   node.position.set(obj.t[0], obj.t[1], obj.t[2]);
   node.rotation.z = obj.rz || 0;
   node.scale.setScalar(obj.s || 1);
-  node.userData.objectId = obj.id;
   node.traverse((n) => { n.userData.objectId = obj.id; });
   return node;
 }

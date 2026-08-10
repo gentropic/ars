@@ -86,6 +86,28 @@ const chk = (name, cond, extra) => {
   chk('tombstone holds against stale edit', ro.stillDead);
   chk('project round-trip is stable', ro.n1 === ro.n2 && ro.applied === 0, round);
 
+  // demo scene: one click populates (axes + 4 boxes + label + terrain blob),
+  // a second click removes it cleanly
+  await page.click('#demo');
+  await page.waitForFunction('__studio.store.all().some(o => o.kind === "mesh")', { timeout: 5000 });
+  const demo = await page.evaluate(`(() => {
+    const s = __studio.store;
+    const demoLayer = s.byKind('layer').find(l => l.name === 'demo');
+    const objs = s.all().filter(o => o.layer === (demoLayer || {}).id);
+    const mesh = objs.find(o => o.kind === 'mesh');
+    return { layers: !!demoLayer, n: objs.length,
+             kinds: objs.map(o => o.kind).sort().join(','),
+             blob: mesh ? !!s.getBlob(mesh.props.blob) : false };
+  })()`);
+  chk('demo scene populated', demo.layers && demo.n === 7 && demo.blob,
+    JSON.stringify(demo));
+  await page.click('#demo');
+  await page.waitForTimeout(100);
+  const gone = await page.evaluate(
+    `__studio.store.byKind('layer').every(l => l.name !== 'demo') &&
+     !__studio.store.all().some(o => o.kind === 'mesh')`);
+  chk('demo scene toggles off cleanly', gone);
+
   chk('no page errors (end)', errors.length === 0, errors.join('; '));
 
   await browser.close();

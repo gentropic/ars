@@ -59,6 +59,11 @@ export function initUI(store, view, els) {
     state.activeLayer = l.id;
   };
 
+  els.demo.onclick = async () => {
+    const { toggleDemoScene } = await import('./demo.js');
+    await toggleDemoScene(store);
+  };
+
   els.save.onclick = () => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([store.exportProject()], { type: 'application/json' }));

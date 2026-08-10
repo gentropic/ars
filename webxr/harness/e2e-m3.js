@@ -1,10 +1,11 @@
 // ars-m3 END-TO-END harness: loads the REAL ars-m3.html in headless Chrome,
 // stubs the WebXR API (session, frames, camera texture, hit-test, anchors),
 // pumps ~60 frames, and asserts the fused marker pose against ground truth.
-// Geometry: camera at origin looking down -Z; marker (140 mm,
-// ARUCO_MIP_36h12 id 7 — high-entropy per the SPEC testing rule) flat on
-// the plane z = -0.5 facing the camera, top edge up. Expected fused pose:
-// rotation = identity, position = (0, 0, -0.5).
+// Geometry: camera at origin looking down -Z; markers (ARUCO_MIP_36h12,
+// per-scenario list) flat on the plane z = -0.5 facing the camera, top
+// edges up. Four scenarios: the ad-hoc single-marker path (anchored /
+// wrong-size witness) and the mat datum path (full constellation → one
+// confident datum at the printed origin; lone reference → unconfident).
 // npm i (playwright, repo root), then: node e2e-m3.js (serves ../reference in-process).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,30 +34,31 @@ const STUB = `
   proj[10] = -1.001; proj[11] = -1; proj[14] = -0.02;
   const IDENT = new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
 
-  // camera image: one marker (quiet zone + border + payload, geometry from
-  // dic.markSize) centered, black square edge = FY*0.14/0.5 px, top edge up.
-  const MARKER_ID = 7;                                // high-entropy (SPEC §5 testing rule)
+  // camera image: window.__MARKERS = [{id, x, y, size}] rendered by pinhole
+  // projection onto the plane z = -WORLDZ (quiet zone + border + payload,
+  // geometry from dic.markSize), top edges up. Markers sit OFF-center in the
+  // frame, so any constant ray bias (the principal-point bug class) breaks
+  // the position asserts.
   function makeCameraCanvas(dic){
     const c = document.createElement('canvas'); c.width = CAMW; c.height = CAMH;
     const g = c.getContext('2d');
     g.fillStyle = '#787878'; g.fillRect(0, 0, CAMW, CAMH);
     const FYCAM = window.__FYCAM || FY;               // camera-frame focal (may ≠ view!)
-    const WORLDY = window.__WORLDY ?? 0.1;
     const WORLDZ = window.__WORLDZ ?? 0.5;
-    const blackPx = FYCAM * 0.14 / WORLDZ;
     const MS = dic.markSize, PAY = MS - 2;            // 36h12: 8 cells black, 6x6 payload
-    const cell = blackPx / MS, total = cell * (MS + 2);
-    // marker at WORLD (0, +0.1, -0.5): off-center in frame, so any constant
-    // ray bias (the principal-point bug class) breaks the position assert
-    const cyPx = CAMH/2 - FYCAM * WORLDY / WORLDZ;
-    const x0 = CAMW/2 - total/2, y0 = cyPx - total/2;
-    g.fillStyle = '#fff'; g.fillRect(x0, y0, total, total);
-    g.fillStyle = '#000'; g.fillRect(x0 + cell, y0 + cell, cell*MS, cell*MS);
-    const code = dic.codeList[MARKER_ID];
-    g.fillStyle = '#fff';
-    for (let r = 0; r < PAY; r++) for (let q = 0; q < PAY; q++)
-      if (code[r*PAY+q] === '1')
-        g.fillRect(x0 + (q+2)*cell, y0 + (r+2)*cell, cell+0.5, cell+0.5);
+    for (const mk of (window.__MARKERS || [])){
+      const blackPx = FYCAM * mk.size / WORLDZ;
+      const cell = blackPx / MS, total = cell * (MS + 2);
+      const x0 = CAMW/2 + FYCAM * mk.x / WORLDZ - total/2;
+      const y0 = CAMH/2 - FYCAM * mk.y / WORLDZ - total/2;
+      g.fillStyle = '#fff'; g.fillRect(x0, y0, total, total);
+      g.fillStyle = '#000'; g.fillRect(x0 + cell, y0 + cell, cell*MS, cell*MS);
+      const code = dic.codeList[mk.id];
+      g.fillStyle = '#fff';
+      for (let r = 0; r < PAY; r++) for (let q = 0; q < PAY; q++)
+        if (code[r*PAY+q] === '1')
+          g.fillRect(x0 + (q+2)*cell, y0 + (r+2)*cell, cell+0.5, cell+0.5);
+    }
     return c;
   }
 
@@ -153,22 +155,26 @@ const STUB = `
     const AR = window.AR;
     window.__camCanvas = makeCameraCanvas(new AR.Dictionary('ARUCO_MIP_36h12'));
   };
-  window.__markerId = MARKER_ID;
 } catch (e) { window.__stubErr = e.message; } })();
 `;
 
-async function runScenario(name, fycam, worldY = 0.1, worldZ = 0.5, msize = 140, expect = 'anchored'){
+// o: { name, markers: [{id,x,y,size}], msize, target: 'mat'|id,
+//      expect: 'anchored'|'size-warning', pos: [x,y,z], refs?, confident?, fycam?, worldZ? }
+async function runScenario(o){
+  const worldZ = o.worldZ ?? 0.5;
   const browser = await chromium.launch({
     args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('Failed to load resource')) errors.push(m.text()); });
-  await page.addInitScript('window.__FYCAM = ' + (fycam || 'undefined') + '; window.__WORLDY = ' + worldY + '; window.__WORLDZ = ' + worldZ + ';');
+  await page.addInitScript('window.__FYCAM = ' + (o.fycam || 'undefined') +
+    '; window.__WORLDZ = ' + worldZ +
+    '; window.__MARKERS = ' + JSON.stringify(o.markers) + ';');
   await page.addInitScript(STUB);
   await page.goto(`http://127.0.0.1:${PORT}/ars-m3.html`);
   await page.evaluate('window.__initCam()');
-  await page.evaluate(`localStorage.clear(); document.getElementById('msize').value = '` + msize + `'`);
+  await page.evaluate(`localStorage.clear(); document.getElementById('msize').value = '` + o.msize + `'`);
   await page.click('#enter');
   await new Promise(r => setTimeout(r, 300));           // session + spaces resolve
 
@@ -178,12 +184,13 @@ async function runScenario(name, fycam, worldY = 0.1, worldZ = 0.5, msize = 140,
     await new Promise(r => setTimeout(r, 30));
   }
 
+  const rootExpr = o.target === 'mat' ? 'a.datum()' : 'a.markerRoots.get(' + o.target + ')';
   const out = await page.evaluate(`(() => {
     const a = window.__ars;
     if (window.__stubErr) return { fail: 'stub: ' + window.__stubErr };
     if (!a) return { fail: 'no __ars handle' };
-    const r = a.markerRoots.get(window.__markerId);
-    if (!r) return { fail: 'marker ' + window.__markerId + ' never rooted', stats: a.stats(),
+    const r = ${rootExpr};
+    if (!r) return { fail: ${JSON.stringify(o.target)} + ' never rooted', stats: a.stats(),
       hud: document.getElementById('hud-status').textContent + ' | ' +
            document.getElementById('hud-detail').textContent };
     // effective world pose: anchor pose (if any) · node.local
@@ -197,6 +204,7 @@ async function runScenario(name, fycam, worldY = 0.1, worldZ = 0.5, msize = 140,
     return {
       stats: a.stats(), replants: a.replants(),
       seen: r.seen, fused: r.fusedCount, anchored: !!r.anchor,
+      refs: r.refs, confident: r.confident,
       pos: [M[12], M[13], M[14]].map(v => +v.toFixed(4)),
       xAxis: [M[0], M[1], M[2]].map(v => +v.toFixed(3)),
       zAxis: [M[8], M[9], M[10]].map(v => +v.toFixed(3)),
@@ -207,20 +215,24 @@ async function runScenario(name, fycam, worldY = 0.1, worldZ = 0.5, msize = 140,
     };
   })()`);
 
-  console.log('[' + name + ']', JSON.stringify(out));
-  if (errors.length) console.log('[' + name + '] page errors:', errors);
+  console.log('[' + o.name + ']', JSON.stringify(out));
+  if (errors.length) console.log('[' + o.name + '] page errors:', errors);
   let ok;
-  if (expect === 'anchored'){
+  if (o.expect === 'anchored'){
     ok = !out.fail && errors.length === 0 &&
       out.fused >= 2 && out.anchored &&
-      Math.abs(out.pos[0]) < 0.02 && Math.abs(out.pos[1] - worldY) < 0.02 && Math.abs(out.pos[2] + worldZ) < 0.02 &&
-      Math.abs(out.xAxis[0] - 1) < 0.05 && Math.abs(out.zAxis[2] - 1) < 0.05;
+      Math.abs(out.pos[0] - o.pos[0]) < 0.02 &&
+      Math.abs(out.pos[1] - o.pos[1]) < 0.02 &&
+      Math.abs(out.pos[2] - o.pos[2]) < 0.02 &&
+      Math.abs(out.xAxis[0] - 1) < 0.05 && Math.abs(out.zAxis[2] - 1) < 0.05 &&
+      (o.refs === undefined || out.refs === o.refs) &&
+      (o.confident === undefined || out.confident === o.confident);
   } else {                                    // 'size-warning': loud failure + correct suggestion
     const m = (out.stats && out.stats.rejWhy || '').match(/set marker size ≈ (\d+) mm/);
     ok = errors.length === 0 && !out.anchored && !!m && Math.abs(+m[1] - 140) < 12;
-    if (m) console.log('[' + name + '] suggested size:', m[1], 'mm (truth 140)');
+    if (m) console.log('[' + o.name + '] suggested size:', m[1], 'mm (truth 140)');
   }
-  console.log('[' + name + ']', ok ? 'PASS' : 'FAIL');
+  console.log('[' + o.name + ']', ok ? 'PASS' : 'FAIL');
   await browser.close();
   return ok;
 }
@@ -230,7 +242,7 @@ async function runScenario(name, fycam, worldY = 0.1, worldZ = 0.5, msize = 140,
   // core disagree, which is exactly the failure this harness exists to catch.
   {
     const html = fs.readFileSync(path.join(REF, 'ars-m3.html'), 'utf8');
-    for (const name of ['mat4.js', 'eigen.js', 'solve.js']) {
+    for (const name of ['mat4.js', 'eigen.js', 'classes.js', 'manifest.js', 'solve.js']) {
       const open = '<script type="text/plain" data-ars-module="' + name + '">\n';
       const i = html.indexOf(open);
       const j = html.indexOf('</' + 'script>', i);
@@ -243,10 +255,33 @@ async function runScenario(name, fycam, worldY = 0.1, worldZ = 0.5, msize = 140,
   }
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   PORT = server.address().port;
-  const a = await runScenario('correct-setup', null, 0.1, 0.5, 140, 'anchored');
-  const b = await runScenario('wrong-size-entered', null, 0.1, 0.5, 100, 'size-warning');
+
+  // the reference mat (assets/ars-mat-a4.pdf p.2): 80 mm markers at ±55/±85 mm
+  // around the origin cross; here the mat lies on the plane z=-0.5 with its
+  // origin at world (0, 0.1, -0.5), so each marker sits at origin + matPose.
+  const MAT = [
+    { id: 7,   x: -0.055, y: 0.185, size: 0.08 },
+    { id: 23,  x:  0.055, y: 0.185, size: 0.08 },
+    { id: 98,  x: -0.055, y: 0.015, size: 0.08 },
+    { id: 133, x:  0.055, y: 0.015, size: 0.08 },
+  ];
+  const results = [];
+  // ad-hoc path (id 3: reference range, NOT in the manifest → per-marker root,
+  // user-entered size — the v1.0 behavior, still the merge-gate baseline)
+  results.push(await runScenario({ name: 'adhoc-correct', target: 3, expect: 'anchored',
+    markers: [{ id: 3, x: 0, y: 0.1, size: 0.14 }], msize: 140, pos: [0, 0.1, -0.5] }));
+  results.push(await runScenario({ name: 'adhoc-wrong-size', target: 3, expect: 'size-warning',
+    markers: [{ id: 3, x: 0, y: 0.1, size: 0.14 }], msize: 100 }));
+  // the datum (§4.3 gate → §6 solve): manifest ids fuse into ONE root whose
+  // pose is the MAT ORIGIN (the printed cross), not any single marker
+  results.push(await runScenario({ name: 'mat-datum', target: 'mat', expect: 'anchored',
+    markers: MAT, msize: 140, pos: [0, 0.1, -0.5], refs: 4, confident: true }));
+  results.push(await runScenario({ name: 'mat-single-ref', target: 'mat', expect: 'anchored',
+    markers: [MAT[0]], msize: 140, pos: [0, 0.1, -0.5], refs: 1, confident: false }));
+
   server.close();
-  console.log(a && b ? 'E2E: ALL PASS — correct setup anchors; wrong size fails LOUDLY with the right number'
-                     : 'E2E: FAIL');
-  process.exit(a && b ? 0 : 1);
+  const all = results.every(Boolean);
+  console.log(all ? 'E2E: ALL PASS — ad-hoc anchors; wrong size fails LOUDLY; the mat fuses to ONE datum at the printed origin'
+                  : 'E2E: FAIL');
+  process.exit(all ? 0 : 1);
 })().catch(e => { console.error('HARNESS:', e); process.exit(1); });

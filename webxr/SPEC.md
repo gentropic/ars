@@ -162,6 +162,23 @@ then permanently loses write access. It never plants anchors. (Its planar
 ambiguity and depth noise are why; and note its compose convention leaves
 marker z pointing away — irrelevant for a preview that dies in ~2 frames.)
 
+**The datum (2026-08-10, the §8b wiring)**: the embedded §8 manifest (the
+reference mat: ids 7/23/98/133, 80 mm, explicit reference class — 98 and
+133 sit in object/content default ranges, so the declarations are
+load-bearing) routes its ids into ONE fusion group. Each sighting's
+observed pose (the per-marker Horn fit above, manifest size) pools into
+the group's live observation set; `classGate` (§4.3, the only door) gates
+it; `solveDatum` solves mat → world over every gated marker's corners at
+once. The datum transform drives a single root + anchor — per-marker
+anchoring is GONE for manifest ids; content hangs in mat space (origin
+axes + cube at the printed cross, a wire square at each reference matPose
+as a live registration witness). A lone reference bootstraps the datum but
+reports `confident: false` (§6.3); observations expire after ~180 frames
+unseen; the camFlip recalibration clears the pool. Ids NOT in the manifest
+keep the v1.0 per-marker root/anchor with the user-entered size — and for
+manifest ids the size witness accuses the PRINT ("mat print scaled ×K?
+reprint at 100%"), not the size entry, since the manifest is authoritative.
+
 **Anchoring ("the merge")**: fused pose → XRAnchor (planted from the 2nd
 fused pose); the root binds anchorSpace so ARCore world tracking carries
 the content between sightings and through occlusion. New fusions apply
@@ -239,7 +256,8 @@ observations (140 mm @ 0.5 m, focal 536 px = the m3 readback geometry;
   [DONE 2026-08-10 — embedded verbatim, e2e green], and multi-marker
   `solveDatum` replaces single-marker anchoring outright
   (datum bench: 1→4 markers cuts rotation error ~5×, 1.61°→0.30° at
-  σ=2 mm; 3–4.5 µs; `harness/bench-datum.mjs`) [still queued].
+  σ=2 mm; 3–4.5 µs; `harness/bench-datum.mjs`) [DONE 2026-08-10 for
+  manifest ids — see "The datum" in §5; ad-hoc ids keep per-marker roots].
 
 ### 5c-addendum: the magic-window regime (no plane source)
 
@@ -361,9 +379,13 @@ THIS package is the other half — the WebXR device edge the repo's roadmap name
 
 - **The repo is upstream truth.** This package becomes its device slice
   (version → 0.2.0, not this package's presumptuous 1.0.0).
-- m3's marker pipeline feeds corner observations through `classGate` into
-  `solveDatum`; the fused T_rig replaces per-marker anchoring (one anchor for
-  the datum, content hung in mat space).
+- **DONE (2026-08-10): m3's marker pipeline feeds observations through
+  `classGate` into `solveDatum`**; the fused transform replaces per-marker
+  anchoring for manifest ids — one anchor for the datum, content hung in
+  mat space (see "The datum" in §5). The embedded core grew classes.js +
+  manifest.js (same verbatim + seam-guard regime). e2e: four scenarios
+  green (ad-hoc ×2, mat-datum confident ×4-ref, mat-single-ref
+  unconfident). Phone re-verify pending with the other two upgrades.
 - **DONE (2026-08-10): `solveRigid` replaces the m3 ad-hoc basis** (§5c
   numbers). The upstream core (mat4/eigen/solve) rides embedded VERBATIM in
   ars-m3.html as text/plain module blocks, Blob-URL-imported with relative
@@ -387,10 +409,11 @@ THIS package is the other half — the WebXR device edge the repo's roadmap name
 - reference/ — ars.html (m1), ars-m2.html (condenser + tools + wheels),
   ars-m3.html (markers, v1.0): all EXACTLY as phone-verified; ground truth
   over any "improvement". [Exception, post-merge: ars-m3.html carries the
-  two §8b upgrades (36h12 dictionary, solveRigid fusion) — e2e-verified,
-  phone re-verify pending. It embeds /src/{mat4,eigen,solve}.js verbatim as
-  text/plain module blocks; if those core files change, re-embed — the e2e
-  seam guard fails loudly until you do.]
+  three §8b upgrades (36h12 dictionary, solveRigid fusion, the mat datum) —
+  e2e-verified, phone re-verify pending. It embeds
+  /src/{mat4,eigen,classes,manifest,solve}.js verbatim as text/plain module
+  blocks; if those core files change, re-embed — the e2e seam guard fails
+  loudly until you do.]
 - src/ — the epoch-1 engine modules (mat, scene, gizmos, session, main).
   The epoch-2 marker machinery still lives in the m3 single file; its
   extraction into src/ is the first task of the next engine version.

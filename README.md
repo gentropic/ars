@@ -78,16 +78,17 @@ Done:
   Hamming 12, kills the id-0 mirror pathology) with `maxHammingDistance: 4` set
   explicitly here and in `web/detect.js` (ghost-detection guard, the binding mat
   finding). e2e + benches green; detector envelope unchanged, detection faster.
-  *Phone re-verification of this one change still owed.*
+- **The halves are wired (§8b complete)** — m3's marker pipeline feeds observations
+  through `classGate` into `solveDatum`: the reference mat's ids fuse into **one
+  datum** (single root + anchor at the printed origin, content hung in mat space,
+  per-marker `solveRigid` poses pooled across sightings); ad-hoc ids keep the v1.0
+  per-marker path. The core (`mat4`/`eigen`/`classes`/`manifest`/`solve`) rides
+  embedded verbatim in the single file, and the e2e seam guard refuses to run if
+  the embed drifts from `src/`. Four e2e scenarios green.
+  *Phone re-verification of the three m3 upgrades still owed (one session).*
 
 Next (the §8b reconciliation — `webxr/SPEC.md` is the working spec):
 
-- **Wire the halves** — m3's marker pipeline feeds corner observations through
-  `classGate` into `solveDatum`; the fused T_rig replaces per-marker anchoring
-  (one anchor for the datum, content hung in mat space). *First stitch done:*
-  `solveRigid` now computes m3's fused pose (the core rides embedded verbatim in
-  the single file; the e2e seam guard fails if the embed drifts from `src/`).
-  `webxr/harness/e2e-m3.js` is the merge gate: both scenarios must stay green.
 - **ChArUco intrinsics (§3.2)** — recover real focal/principal point for accurate metric
   depth (the current focal = frame-width is a heuristic; orientation is already correct).
 - **Anchors (optional, Path A)** — WebXR *local* anchors to steady the datum between

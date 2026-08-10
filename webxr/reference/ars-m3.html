@@ -2315,6 +2315,182 @@ export function argmax(values) {
   return k;
 }
 </script>
+<script type="text/plain" data-ars-module="classes.js">
+// classes.js — marker classes and the class gate (SPEC §4).
+//
+// A marker's class is its role, encoded in its id range so class is known from
+// detection alone, without a manifest lookup. The separation of `reference` (fused,
+// world-defining) from `object` (live, never world-defining) is load-bearing, not
+// organizational (§4.3): it is the rule that keeps the static and dynamic solves
+// from contaminating each other. Apply the gate.
+
+export const CLASS = Object.freeze({
+  REFERENCE: 'reference',
+  OBJECT: 'object',
+  CONTENT: 'content',
+});
+
+// Default id-range partition (§4). A manifest MAY repartition but MUST declare it;
+// pass its ranges as opts.ranges (same shape) to honor that.
+export const DEFAULT_RANGES = Object.freeze({
+  reference: [0, 49],
+  object: [50, 99],
+  content: [100, 249],
+});
+
+// Class of a marker id. Resolution order (§8: manifest wins over id-range defaults):
+//   1. opts.overrides[id]   — explicit per-id class (e.g. from a manifest marker)
+//   2. opts.ranges (or the default partition)
+// Returns a CLASS string, or null if the id falls outside every range.
+export function classOf(id, opts = {}) {
+  const n = Number(id);
+  if (opts.overrides && opts.overrides[n] != null) return opts.overrides[n];
+  const ranges = opts.ranges || DEFAULT_RANGES;
+  for (const cls of [CLASS.REFERENCE, CLASS.OBJECT, CLASS.CONTENT]) {
+    const r = ranges[cls];
+    if (r && n >= r[0] && n <= r[1]) return cls;
+  }
+  return null;
+}
+
+export function isReference(id, opts) { return classOf(id, opts) === CLASS.REFERENCE; }
+export function isObject(id, opts) { return classOf(id, opts) === CLASS.OBJECT; }
+export function isContent(id, opts) { return classOf(id, opts) === CLASS.CONTENT; }
+
+// THE GATE (§4.3, normative): only `reference`-class observations may feed the datum.
+// `observations` is any array of objects carrying an `id`. Returns the reference-class
+// subset — the only input the datum solve (§6) is permitted to see. Object markers,
+// however waved about, can never drag the world origin.
+export function classGate(observations, opts) {
+  return observations.filter((o) => classOf(o.id, opts) === CLASS.REFERENCE);
+}
+
+// Split observations into the three classes — references (→ datum), objects (→ live
+// input), content (→ capsule resolution). Ids outside every range are dropped.
+export function partitionByClass(observations, opts) {
+  const out = { reference: [], object: [], content: [] };
+  for (const o of observations) {
+    const cls = classOf(o.id, opts);
+    if (cls) out[cls].push(o);
+  }
+  return out;
+}
+</script>
+<script type="text/plain" data-ars-module="manifest.js">
+// manifest.js — the authoritative description of a mat (SPEC §8).
+//
+// Markers are dumb stable ids; the manifest is the program. It binds ids to class,
+// printed size, label, content capsule, and — in surveyed mode — the references'
+// relative poses and the designated origin. This module validates a parsed manifest
+// object (JSON or YAML is parsed by the caller; core stays zero-dep) and answers the
+// two questions the rest of the system asks of it: what class is this id, and which
+// marker is the origin.
+
+import { CLASS, DEFAULT_RANGES, classOf } from './classes.js';
+
+export const DEFAULT_DICTIONARY = 'ARUCO_MIP_36h12';
+const MODES = ['surveyed', 'discovered'];
+const VALID_CLASSES = [CLASS.REFERENCE, CLASS.OBJECT, CLASS.CONTENT];
+
+function fail(msg) { throw new Error('ars manifest: ' + msg); }
+
+// Validate + normalize a parsed manifest object. Returns:
+//   { version, dictionary, mode, classes|null, origin|null, markers: Map<number,entry> }
+// where each entry is { id, class?, size?, label?, pose?:Float64Array(16), capsule? }.
+// Throws on hard structural errors; lenient about optional fields.
+export function parseManifest(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) fail('expected an object');
+
+  const mode = input.mode == null ? 'surveyed' : String(input.mode);
+  if (!MODES.includes(mode)) fail(`mode must be one of ${MODES.join(' / ')}, got "${input.mode}"`);
+
+  // Optional class repartition (§4). If present, validate each range as [lo, hi].
+  let classes = null;
+  if (input.classes != null) {
+    if (typeof input.classes !== 'object') fail('classes must be an object of {class: [lo, hi]}');
+    classes = {};
+    for (const cls of VALID_CLASSES) {
+      const r = input.classes[cls];
+      if (r == null) continue;
+      if (!Array.isArray(r) || r.length !== 2 || !r.every((n) => Number.isInteger(n)) || r[0] > r[1]) {
+        fail(`classes.${cls} must be an integer range [lo, hi] with lo ≤ hi`);
+      }
+      classes[cls] = [r[0], r[1]];
+    }
+  }
+
+  const markers = new Map();
+  const rawMarkers = input.markers || {};
+  if (typeof rawMarkers !== 'object' || Array.isArray(rawMarkers)) fail('markers must be an object keyed by id');
+  for (const key of Object.keys(rawMarkers)) {
+    const id = Number(key);
+    if (!Number.isInteger(id) || id < 0) fail(`marker id "${key}" must be a non-negative integer`);
+    const src = rawMarkers[key] || {};
+    const entry = { id };
+
+    if (src.class != null) {
+      if (!VALID_CLASSES.includes(src.class)) fail(`marker ${id}: class must be one of ${VALID_CLASSES.join(' / ')}`);
+      entry.class = src.class;
+    }
+    if (src.size != null) {
+      if (typeof src.size !== 'number' || !(src.size > 0)) fail(`marker ${id}: size must be a positive number (meters)`);
+      entry.size = src.size;
+    }
+    if (src.label != null) entry.label = String(src.label);
+    if (src.capsule != null) entry.capsule = String(src.capsule);
+    if (src.pose != null) {
+      if (!Array.isArray(src.pose) && !ArrayBuffer.isView(src.pose)) fail(`marker ${id}: pose must be a 16-number array (column-major 4×4)`);
+      if (src.pose.length !== 16) fail(`marker ${id}: pose must have 16 elements, got ${src.pose.length}`);
+      entry.pose = Float64Array.from(src.pose);
+    }
+    markers.set(id, entry);
+  }
+
+  const manifest = {
+    version: input.version != null ? String(input.version) : '0.1',
+    dictionary: input.dictionary != null ? String(input.dictionary) : DEFAULT_DICTIONARY,
+    mode,
+    classes,
+    origin: input.origin != null ? Number(input.origin) : null,
+    markers,
+  };
+
+  // An explicit origin must name a reference-class marker.
+  if (manifest.origin != null && resolveClass(manifest, manifest.origin) !== CLASS.REFERENCE) {
+    fail(`origin ${manifest.origin} is not a reference-class marker`);
+  }
+  return manifest;
+}
+
+export function getMarker(manifest, id) {
+  return manifest.markers.get(Number(id)) || null;
+}
+
+// Class of an id under a manifest: a marker's explicit class wins (§8), else the
+// manifest's range partition, else the default partition.
+export function resolveClass(manifest, id) {
+  const m = manifest.markers && manifest.markers.get(Number(id));
+  if (m && m.class) return m.class;
+  return classOf(id, { ranges: manifest.classes || DEFAULT_RANGES });
+}
+
+// The origin marker (SPEC §5.1): the manifest's explicit `origin`, else the lowest
+// reference id present. `presentIds` (optional) restricts the default to ids the rig
+// currently sees; without it, the lowest reference id known to the manifest is used.
+// Returns the origin id, or null if no reference marker is available.
+export function resolveOrigin(manifest, presentIds) {
+  if (manifest.origin != null) return manifest.origin;
+
+  let candidates;
+  if (presentIds && presentIds.length) {
+    candidates = presentIds.filter((id) => resolveClass(manifest, id) === CLASS.REFERENCE);
+  } else {
+    candidates = [...manifest.markers.keys()].filter((id) => resolveClass(manifest, id) === CLASS.REFERENCE);
+  }
+  if (!candidates.length) return null;
+  return candidates.reduce((a, b) => (b < a ? b : a));
+}
+</script>
 <script type="text/plain" data-ars-module="solve.js">
 // solve.js — the datum solve (SPEC §6). Fuse a constellation of reference markers
 // into one robust rigid transform between mat space and an observation frame.
@@ -2448,16 +2624,18 @@ export function solveDatum(references, opts = {}) {
 "use strict";
 /* @gcu/ars upstream core loader (§8b seam): the text/plain blocks above hold
    verbatim /src/ modules; import them via Blob URLs, rewriting the relative
-   specifiers ('./mat4.js' → its blob) dep-first. Resolves to the solve.js
-   module namespace ({ solveRigid, solveDatum, markerCorners }). */
+   specifiers ('./mat4.js' → its blob) dep-first. Resolves to the merged
+   namespaces of classes.js (§4 gate), manifest.js (§8), solve.js (§6). */
 const ARS_CORE = (async () => {
   const urls = {};
-  for (const name of ["mat4.js", "eigen.js", "solve.js"]){
+  for (const name of ["mat4.js", "eigen.js", "classes.js", "manifest.js", "solve.js"]){
     let text = document.querySelector('script[data-ars-module="' + name + '"]').textContent;
     for (const dep in urls) text = text.split("'./" + dep + "'").join("'" + urls[dep] + "'");
     urls[name] = URL.createObjectURL(new Blob([text], { type: "text/javascript" }));
   }
-  return import(urls["solve.js"]);
+  const [cls, man, solve] = await Promise.all(
+    [urls["classes.js"], urls["manifest.js"], urls["solve.js"]].map((u) => import(u)));
+  return { ...cls, ...man, ...solve };
 })();
 window.addEventListener("error", (e) => {
   const el = document.getElementById("err");
@@ -2793,6 +2971,7 @@ async function enterAR(){
     focalK = 1;                                          // orientation changes the geometry:
     for (const [, pnd] of pendingHits){ try{ pnd.src.cancel(); }catch(_){} }
     pendingHits.clear();                                 // recalibrate from scratch
+    if (matG) matG.obs.clear();                          // pooled datum obs included
   };
   for (const el of [$("exit"), $("dbg-toggle"), $("flip-btn")]) el.addEventListener("beforexrselect", (e) => e.preventDefault());
 
@@ -2814,7 +2993,40 @@ async function enterAR(){
      admits ghost detections — binding finding from the mat verification. */
   const detector = new AR.Detector({ dictionaryName: "ARUCO_MIP_36h12", maxHammingDistance: 4 });
   const MARKER_M = Math.max(10, Number($("msize").value) || 100) / 1000;
-  let posit = null, positH = 0;
+
+  /* ── THE MAT (§8 manifest → §4 class gate → §6 datum). The printed
+     reference constellation (assets/ars-mat-a4.pdf page 2, layout from
+     ars-mat-manifest.json: 80 mm markers at ±55/±85 mm around the origin
+     cross). The manifest is the program: its reference-class ids fuse into
+     ONE datum — a single root + anchor, content hung in mat space — through
+     classGate, the only door to the datum solve. Ids NOT in the manifest
+     keep the v1.0 per-marker path with the user-entered size. Note 98 and
+     133 fall in the object/content default ranges: the explicit class
+     declarations below are load-bearing (§8: manifest wins). ── */
+  const MAT = CORE.parseManifest({
+    version: "1", dictionary: "ARUCO_MIP_36h12", mode: "surveyed", origin: 7,
+    markers: {
+      7:   { class: "reference", size: 0.08, pose: [1,0,0,0, 0,1,0,0, 0,0,1,0, -0.055,  0.085, 0, 1] },
+      23:  { class: "reference", size: 0.08, pose: [1,0,0,0, 0,1,0,0, 0,0,1,0,  0.055,  0.085, 0, 1] },
+      98:  { class: "reference", size: 0.08, pose: [1,0,0,0, 0,1,0,0, 0,0,1,0, -0.055, -0.085, 0, 1] },
+      133: { class: "reference", size: 0.08, pose: [1,0,0,0, 0,1,0,0, 0,0,1,0,  0.055, -0.085, 0, 1] },
+    },
+  });
+  const MAT_OVERRIDES = {};                             // manifest classes as gate opts
+  const MAT_INV = new Map();                            // id → matPose⁻¹ (rigid)
+  for (const [mid, e] of MAT.markers){
+    if (e.class) MAT_OVERRIDES[mid] = e.class;
+    if (e.pose){ const inv = new Float32Array(16); m4rigidInverse(e.pose, inv); MAT_INV.set(mid, inv); }
+  }
+  const inMat = (id) => MAT.markers.has(id);
+  const sizeFor = (id) => { const e = MAT.markers.get(id); return (e && e.size) || MARKER_M; };
+
+  const posits = new Map();                             // marker size → POSIT (per readback height)
+  function positFor(size, meta){
+    let p = posits.get(size);
+    if (!p || p.h !== tap.H){ p = { h: tap.H, posit: new POS.Posit(size, meta.proj5 * tap.H / 2) }; posits.set(size, p); }
+    return p.posit;
+  }
 
   /* one root per marker id, gizmo pinned to its plane (z toward the camera) */
   const markerRoots = new Map();
@@ -2842,6 +3054,37 @@ async function enterAR(){
     return r;
   }
 
+  /* the datum root: ONE anchor for the whole mat; content hangs in mat
+     space — origin axes + cube at the printed cross, a wire square at each
+     reference matPose (live witnesses of registration quality) */
+  let matG = null;
+  function matGroup(){
+    if (matG) return matG;
+    const node = makeNode();
+    const ax = axesGeom(0.06);
+    addChild(node, makeNode({ drawable: lineDrawable(gl, ax.positions, ax.colors, gl.LINES) }));
+    for (const [mid, e] of MAT.markers){
+      if (CORE.resolveClass(MAT, mid) !== CORE.CLASS.REFERENCE || !e.pose) continue;
+      const sq = wireSquareGeom(e.size || MARKER_M);
+      addChild(node, makeNode({ local: new Float32Array(e.pose),
+        drawable: lineDrawable(gl, sq.positions, sq.colors, gl.LINES) }));
+    }
+    const cg = cubeGeom(0.03);
+    addChild(node, makeNode({
+      local: m4translation(0, 0, 0.045),
+      drawable: meshDrawable(gl, cg.positions, cg.normals, [0.91, 0.69, 0.29, 1]),
+      update(n, t){                                     // spin about the mat normal
+        const c = Math.cos(t * 0.001), s = Math.sin(t * 0.001);
+        n.local[0] = c; n.local[1] = s; n.local[4] = -s; n.local[5] = c;
+      }
+    }));
+    matG = { space: null, node, seen: 0, anchor: null, anchoring: false,
+             fusedCount: 0, seenFusedPose: false, cand: null, candN: 0,
+             obs: new Map(), lastFus: new Map(), refs: 0, confident: false };
+    forest.push(matG);
+    return matG;
+  }
+
   /* pose → world matrix. posit gives marker→camera (x right, y up, z toward
      viewer positive); GL eye space looks down −z, so negate the third row and
      tz, then lift eye→world with the view pose. */
@@ -2862,7 +3105,7 @@ async function enterAR(){
      pass a HYSTERESIS gate — small or unconfirmed disagreements are
      ignored, which is what kills per-sighting flicker: identical fused
      poses produce exactly zero motion. ── */
-  const _inv = new Float32Array(16), _delta = new Float32Array(16);
+  const _inv = new Float32Array(16), _delta = new Float32Array(16), _pv = new Float32Array(16);
   let replants = 0;
   const rotGapDeg = (a, b) => {
     const d = (a[0]*b[0]+a[1]*b[1]+a[2]*b[2] + a[4]*b[4]+a[5]*b[5]+a[6]*b[6] + a[8]*b[8]+a[9]*b[9]+a[10]*b[10] - 1) / 2;
@@ -2946,35 +3189,54 @@ async function enterAR(){
       const eTop = [pc[1][0]-pc[0][0], pc[1][1]-pc[0][1], pc[1][2]-pc[0][2]];
       const eBot = [pc[2][0]-pc[3][0], pc[2][1]-pc[3][1], pc[2][2]-pc[3][2]];
       const lTop = Math.hypot(...eTop), lBot = Math.hypot(...eBot);
-      const kMeas = ((lTop + lBot) / 2) / MARKER_M;      // reconstruction scale ratio
+      const size = sizeFor(id);                          // manifest size, else entered
+      const kMeas = ((lTop + lBot) / 2) / size;          // reconstruction scale ratio
       const skew = Math.abs(lTop - lBot) / Math.max((lTop + lBot) / 2, 1e-6);
       // MEASUREMENT ONLY — the scale is a witness now, never an actor
       // (v0.9 proved the camera aligns with the view once orientation is
       // right; a feedback loop here only masks config errors). A stable
-      // off-scale reading means the SIZE ENTRY is wrong — say so, with
-      // the number to type.
+      // off-scale reading means the size is wrong — for an ad-hoc marker
+      // that's the SIZE ENTRY (say the number to type); for a mat marker
+      // the manifest is authoritative, so it's the PRINT that's scaled.
       if (skew < 0.35) stats.kEma = stats.kEma ? stats.kEma * 0.8 + kMeas * 0.2 : kMeas;
       if (Math.abs(kMeas - 1) > 0.2 || skew > 0.25){
         stats.fusRej++;
         stats.rejWhy = "edges " + (lTop*1000).toFixed(0) + "/" + (lBot*1000).toFixed(0) +
-                       "mm vs " + (MARKER_M*1000).toFixed(0);
+                       "mm vs " + (size*1000).toFixed(0);
         if (stats.kEma && Math.abs(stats.kEma - kMeas) < 0.1 && Math.abs(stats.kEma - 1) > 0.18)
-          stats.rejWhy += " → set marker size ≈ " + (MARKER_M * stats.kEma * 1000).toFixed(0) + " mm?";
+          stats.rejWhy += inMat(id)
+            ? " → mat print scaled ×" + stats.kEma.toFixed(2) + "? reprint at 100%"
+            : " → set marker size ≈ " + (size * stats.kEma * 1000).toFixed(0) + " mm?";
         continue;
       }
       /* HORN FIT (upstream solveRigid, §8b/§5c): rigid least-squares from
          marker-local corners (TL,TR,BR,BL — y-up, z out of the printed face,
          matching the detector's canonical corner order) to the four plane
-         points. Replaces the ad-hoc basis (mean center, edge-mean x, plane
-         normal z): same plane, since the points are exactly coplanar by
-         construction, but the rotation is the optimal fit over all four
-         corners instead of a two-edge average (§5c: 0.22° vs 0.36°). */
-      const h = MARKER_M / 2;
-      const fused = new Float32Array(CORE.solveRigid(
-        [[-h, h, 0], [h, h, 0], [h, -h, 0], [-h, -h, 0]], pc));
+         points — the marker's observed world pose. */
+      const h = size / 2;
+      const obsPose = CORE.solveRigid(
+        [[-h, h, 0], [h, h, 0], [h, -h, 0], [-h, -h, 0]], pc);
       stats.fusOk++;
-      const r = markerRoots.get(id);
-      if (r) applyFused(frame, r, fused);
+      if (inMat(id)){
+        /* ── THE DATUM (§4.3 gate → §6 solve): pool this observation with
+           the other live mat sightings, gate to reference class, and solve
+           mat → world over every gated marker's corners at once. One
+           transform, one root, one anchor — per-marker anchoring is gone
+           for manifest markers. ── */
+        const g = matGroup();
+        g.obs.set(id, { pose: obsPose, at: frameNo });
+        for (const [oid, o] of g.obs) if (frameNo - o.at > 180) g.obs.delete(oid);
+        const gated = CORE.classGate([...g.obs.keys()].map((k) => ({ id: k })),
+                                     { overrides: MAT_OVERRIDES, ranges: MAT.classes || undefined });
+        const refs = gated.map(({ id: k }) => ({
+          matPose: MAT.markers.get(k).pose, observedPose: g.obs.get(k).pose, size: sizeFor(k) }));
+        const datum = CORE.solveDatum(refs);
+        g.refs = datum.count; g.confident = datum.confident;
+        if (datum.transform) applyFused(frame, g, new Float32Array(datum.transform));
+      } else {
+        const r = markerRoots.get(id);
+        if (r) applyFused(frame, r, new Float32Array(obsPose));
+      }
     }
   }
 
@@ -3041,7 +3303,8 @@ async function enterAR(){
     $("splash").style.display = "block"; $("enter").disabled = false;
   });
 
-  window.__ars = { markerRoots, forest, stats: () => stats, replants: () => replants, tap, session, focalK: () => focalK };
+  window.__ars = { markerRoots, forest, stats: () => stats, replants: () => replants, tap, session, focalK: () => focalK,
+                   datum: () => matG, mat: MAT };
   const cam = { state: { viewProj: new Float32Array(16) } };
   const drawList = [];
   const onFrame = (t, frame) => {
@@ -3085,10 +3348,6 @@ async function enterAR(){
         ema(stats, "det", t2 - t1);
         stats.lat = frameNo - meta.frameNo;
 
-        if (!posit || positH !== tap.H){
-          positH = tap.H;
-          posit = new POS.Posit(MARKER_M, meta.proj5 * tap.H / 2);
-        }
         for (const m of markers){
           // quality gate: motion blur and grazing views produce corner garbage
           // that used to send the pose to "wilder places" — reject them here
@@ -3099,20 +3358,27 @@ async function enterAR(){
           const eMin = Math.min(...el), eMax = Math.max(...el);
           if (eMin < 12 || eMax / eMin > 2.5) continue;
 
-          const r = rootFor(m.id);
-          r.seen++;
-          if (!r.fusedCount){                           // POSIT preview, pre-fusion only
+          const inM = inMat(m.id);
+          const g = inM ? matGroup() : rootFor(m.id);
+          g.seen++;
+          if (!g.fusedCount){                           // POSIT preview, pre-fusion only
             const cs = m.corners.map(c => ({ x: c.x - tap.W / 2, y: tap.H / 2 - c.y }));
-            adoptPreview(r, composeMarker(posit.pose(cs), meta.viewMat));
+            const W = composeMarker(positFor(sizeFor(m.id), meta).pose(cs), meta.viewMat);
+            // a mat marker previews the DATUM: world = markerWorld · matPose⁻¹
+            adoptPreview(g, inM ? m4mul(W, MAT_INV.get(m.id), _pv) : W);
           }
           // fuse eagerly until locked, then only re-check every ~15 frames
-          if (!r.fusedCount || frameNo - (r.lastFus || 0) > 15){
+          // (per marker id — each mat marker refreshes its own observation)
+          const lastFus = inM ? (g.lastFus.get(m.id) || 0) : (g.lastFus || 0);
+          if (!g.fusedCount || frameNo - lastFus > 15){
             requestFusion(m.id, m.corners, meta);
-            r.lastFus = frameNo;
+            if (inM) g.lastFus.set(m.id, frameNo); else g.lastFus = frameNo;
           }
-          status("marker " + m.id + (r.anchor ? " ⚓" : r.fusedCount ? " ◈" : " ~"),
-                 r.seen + " sightings, " + r.fusedCount + " fused" +
-                 (r.anchor ? ", world-anchored" : r.fusedCount ? ", fused" : ", posit preview"));
+          const st = g.anchor ? " ⚓" : g.fusedCount ? " ◈" : " ~";
+          status(inM ? "mat" + st + " (" + g.refs + " ref" + (g.confident ? ", confident" : "") + ")"
+                     : "marker " + m.id + st,
+                 g.seen + " sightings, " + g.fusedCount + " fused" +
+                 (g.anchor ? ", world-anchored" : g.fusedCount ? ", fused" : ", posit preview"));
         }
         $("hud-stats").textContent =
           tap.W + "×" + tap.H + " | det " + stats.det.toFixed(1) +

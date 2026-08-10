@@ -84,9 +84,10 @@ Next (the §8b reconciliation — `webxr/SPEC.md` is the working spec):
 
 - **Wire the halves** — m3's marker pipeline feeds corner observations through
   `classGate` into `solveDatum`; the fused T_rig replaces per-marker anchoring
-  (one anchor for the datum, content hung in mat space). `solveRigid` replaces
-  the m3 ad-hoc basis. `webxr/harness/e2e-m3.js` is the merge gate: both
-  scenarios must stay green.
+  (one anchor for the datum, content hung in mat space). *First stitch done:*
+  `solveRigid` now computes m3's fused pose (the core rides embedded verbatim in
+  the single file; the e2e seam guard fails if the embed drifts from `src/`).
+  `webxr/harness/e2e-m3.js` is the merge gate: both scenarios must stay green.
 - **ChArUco intrinsics (§3.2)** — recover real focal/principal point for accurate metric
   depth (the current focal = frame-width is a heuristic; orientation is already correct).
 - **Anchors (optional, Path A)** — WebXR *local* anchors to steady the datum between

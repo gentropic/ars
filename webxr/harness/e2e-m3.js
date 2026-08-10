@@ -225,6 +225,22 @@ async function runScenario(name, fycam, worldY = 0.1, worldZ = 0.5, msize = 140,
   return ok;
 }
 (async () => {
+  // seam guard: the core modules embedded in ars-m3.html must be VERBATIM
+  // copies of /src/ — a drifted embed means the audited core and the shipped
+  // core disagree, which is exactly the failure this harness exists to catch.
+  {
+    const html = fs.readFileSync(path.join(REF, 'ars-m3.html'), 'utf8');
+    for (const name of ['mat4.js', 'eigen.js', 'solve.js']) {
+      const open = '<script type="text/plain" data-ars-module="' + name + '">\n';
+      const i = html.indexOf(open);
+      const j = html.indexOf('</' + 'script>', i);
+      const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', name), 'utf8');
+      if (i < 0 || html.slice(i + open.length, j) !== src) {
+        console.error('EMBED DRIFT: ' + name + ' in ars-m3.html is not the verbatim /src/ copy — re-embed it');
+        process.exit(1);
+      }
+    }
+  }
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   PORT = server.address().port;
   const a = await runScenario('correct-setup', null, 0.1, 0.5, 140, 'anchored');

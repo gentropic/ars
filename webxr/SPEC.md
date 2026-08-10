@@ -146,9 +146,12 @@ world-fixed ray through the detected center (capture-frame eye + snapshot
 unprojection) goes to requestHitTestSource — ONE in flight per marker
 (cancelling ripening requests starved the pipeline), throttled to ~every 15
 frames once locked. On hit: plane = hit position + hit +Y (flipped toward
-the eye); all FOUR corner rays intersect that plane; center = mean of the
-four points; x-axis = mean of top and bottom edges projected into the
-plane; y = n × x. Both edges must match the entered marker size within 20%
+the eye); all FOUR corner rays intersect that plane; the fused pose is the
+upstream core's `solveRigid` (Horn rigid least-squares, §5c) from
+marker-local corners to the four plane points [replaced the ad-hoc
+mean-center / edge-mean-x / plane-normal-z basis on 2026-08-10 — the §8b
+upgrade; the core rides embedded verbatim, see §9]. Both edges must match
+the entered marker size within 20%
 and each other within 25% or the fusion is rejected — and a *stable*
 off-scale reading prints the size the user should have typed ("set marker
 size ≈ 139 mm?"). The scale measurement is a WITNESS, never an actor: no
@@ -232,10 +235,11 @@ observations (140 mm @ 0.5 m, focal 536 px = the m3 readback geometry;
 - **Honest caveat**: POSIT needs nothing but pixels + focal; the written path
   needs a plane. This RATIFIES the shipped architecture — POSIT as the
   zero-knowledge bootstrap preview, plane-fused solve as the steady state —
-  and queues one upgrade at merge time: `solveRigid` replaces the m3 basis,
-  and multi-marker `solveDatum` replaces single-marker anchoring outright
+  and queues one upgrade at merge time: `solveRigid` replaces the m3 basis
+  [DONE 2026-08-10 — embedded verbatim, e2e green], and multi-marker
+  `solveDatum` replaces single-marker anchoring outright
   (datum bench: 1→4 markers cuts rotation error ~5×, 1.61°→0.30° at
-  σ=2 mm; 3–4.5 µs; `harness/bench-datum.mjs`).
+  σ=2 mm; 3–4.5 µs; `harness/bench-datum.mjs`) [still queued].
 
 ### 5c-addendum: the magic-window regime (no plane source)
 
@@ -360,7 +364,12 @@ THIS package is the other half — the WebXR device edge the repo's roadmap name
 - m3's marker pipeline feeds corner observations through `classGate` into
   `solveDatum`; the fused T_rig replaces per-marker anchoring (one anchor for
   the datum, content hung in mat space).
-- `solveRigid` replaces the m3 ad-hoc basis (§5c numbers).
+- **DONE (2026-08-10): `solveRigid` replaces the m3 ad-hoc basis** (§5c
+  numbers). The upstream core (mat4/eigen/solve) rides embedded VERBATIM in
+  ars-m3.html as text/plain module blocks, Blob-URL-imported with relative
+  specifiers rewritten; the e2e refuses to run if an embedded block drifts
+  from /src/ (the seam guard). e2e green; phone re-verify pending (same
+  session as the dictionary switch).
 - **DONE (2026-08-10, Arthur's call): m3 switched to ARUCO_MIP_36h12** — the
   June decision; Hamming 12 vs the base dictionary's 3; retroactively kills
   the id-0 mirror-invariance pathology that masked three orientation bugs.
@@ -377,7 +386,11 @@ THIS package is the other half — the WebXR device edge the repo's roadmap name
 
 - reference/ — ars.html (m1), ars-m2.html (condenser + tools + wheels),
   ars-m3.html (markers, v1.0): all EXACTLY as phone-verified; ground truth
-  over any "improvement".
+  over any "improvement". [Exception, post-merge: ars-m3.html carries the
+  two §8b upgrades (36h12 dictionary, solveRigid fusion) — e2e-verified,
+  phone re-verify pending. It embeds /src/{mat4,eigen,solve}.js verbatim as
+  text/plain module blocks; if those core files change, re-embed — the e2e
+  seam guard fails loudly until you do.]
 - src/ — the epoch-1 engine modules (mat, scene, gizmos, session, main).
   The epoch-2 marker machinery still lives in the m3 single file; its
   extraction into src/ is the first task of the next engine version.

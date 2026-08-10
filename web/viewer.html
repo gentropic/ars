@@ -19,9 +19,12 @@
   #hud { position: fixed; left: 8px; top: 8px; z-index: 10; background: rgba(20,24,30,.78);
          padding: 8px 10px; border-radius: 6px; max-width: 80vw; white-space: pre-wrap; }
   #hud b { color: #e8b04b; }
-  #start { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 20;
-           padding: 14px 20px; font: 16px system-ui; background: #e8b04b; color: #14181e;
-           border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; }
+  #buttons { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 20;
+             display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+  #buttons button { padding: 14px 20px; font: 16px system-ui; background: #e8b04b; color: #14181e;
+                    border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; }
+  #buttons button.alt { background: #2a323e; color: #d8dee9; }
+  #buttons button[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -30,21 +33,33 @@
   <canvas id="gl"></canvas>
 </div>
 <div id="hud"><b>ars viewer</b> — waiting…</div>
-<button id="start">start viewer</button>
+<div id="buttons">
+  <button id="start-ar" hidden>start AR (anchored)</button>
+  <button id="start" class="alt">start camera (magic-window)</button>
+</div>
 
 <script type="module">
-// The mat-window phone viewer (DESIGN.md stage 2): joins the studio's room,
-// receives the scene, localizes on the printed mat (Path B detection + the
-// core's classGate → solveDatum), and renders the scene in mat space over the
-// camera. The magic-window rule from bench-magicwindow holds: the datum only
-// updates with ≥2 gated references in frame (a lone marker's POSIT ambiguity
-// flips near-frontal; the constellation disambiguates structurally).
+// The phone viewer (DESIGN.md stage 2 + 2b): joins the studio's room,
+// receives the scene, localizes on the printed mat, renders in mat space.
+// THREE TIERS, one URL, decided at start:
+//   1. WebXR + camera-access (Android Chrome): immersive AR — the datum is
+//      hit-test-fused and WORLD-ANCHORED (xr-ground.js, the m3 machinery);
+//      content stays glued to the table when markers leave view.
+//   2. getUserMedia magic-window (iOS Safari, desktops): strict marker-based —
+//      the datum only updates with ≥2 gated references in frame (a lone
+//      marker's POSIT ambiguity flips near-frontal; the constellation
+//      disambiguates structurally — bench-magicwindow).
+//   3. neither: a clear message.
+// camera-access is only knowable at requestSession time (visionOS has
+// immersive-ar but no camera-access) — so tier 1 is an ATTEMPT that falls
+// back to tier 2 on any refusal.
 import * as THREE from '../vendor/three/three.module.min.js';
 import { createDetector, detect, markerPose } from './detect.js';
 import { classGate, solveDatum, mat4 } from '../src/main.js';
 import { createStore } from '../studio/src/store.js';
 import { build, RENDERABLE } from '../studio/src/objects.js';
 import { createSync, APP_ID } from '../studio/src/sync.js';
+import { createXRGround } from './xr-ground.js';
 
 const $ = (s) => document.querySelector(s);
 const hud = $('#hud'), video = $('#video'), glCanvas = $('#gl');
@@ -53,8 +68,8 @@ const wctx = work.getContext('2d', { willReadFrequently: true });
 
 const store = createStore();
 let detector, renderer, scene, camera, content;
-let sync = null, running = false, testMode = false;
-let datumAt = 0, roomCode = null, refsSeen = 0;
+let sync = null, running = false, testMode = false, mode = 'flat';
+let datumAt = 0, roomCode = null, refsSeen = 0, ground = null;
 const camInMat = new THREE.Matrix4();
 
 // mat layout (the same file the PDF and the studio use)
@@ -108,6 +123,12 @@ function joinWith(room) {
   });
   return sync;
 }
+async function joinIfRoom() {
+  if (!testMode && roomCode && !sync) {
+    const { joinRoom } = await import('../vendor/trystero/torrent.js');
+    joinWith(joinRoom({ appId: APP_ID }, roomCode));
+  }
+}
 
 function status() {
   hud.innerHTML = `<b>ars viewer</b> room ${roomCode || '—'} · ` +
@@ -159,7 +180,7 @@ function loop() {
 }
 
 async function start() {
-  $('#start').style.display = 'none';
+  $('#buttons').style.display = 'none';
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -172,12 +193,76 @@ async function start() {
     return;
   }
   detector = createDetector();
-  if (!testMode && roomCode) {
-    const { joinRoom } = await import('../vendor/trystero/torrent.js');
-    joinWith(joinRoom({ appId: APP_ID }, roomCode));
-  }
+  await joinIfRoom();
   running = true;
   requestAnimationFrame(loop);
+}
+
+// ── tier 1: WebXR, world-anchored (Android Chrome) ─────────────────────────
+async function startXR() {
+  $('#buttons').style.display = 'none';
+  let session;
+  try {
+    session = await navigator.xr.requestSession('immersive-ar', {
+      // camera-access REQUIRED is the tier test: platforms without it
+      // (visionOS among them) reject here and we fall back cleanly
+      requiredFeatures: ['local', 'camera-access', 'hit-test', 'anchors'],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: document.body },
+    });
+  } catch (e) {
+    hud.innerHTML = '<b>ars viewer</b> — AR unavailable (' + (e.name || e.message) +
+      '), falling back to magic-window…';
+    $('#buttons').style.display = '';
+    $('#start-ar').hidden = true;
+    return start();
+  }
+  mode = 'xr';
+  video.style.display = 'none';
+  session.addEventListener('end', () => location.reload());
+  renderer.xr.enabled = true;
+  renderer.xr.setReferenceSpaceType('local');
+  await renderer.xr.setSession(session);
+  const gl = renderer.getContext();
+  const baseSpace = await session.requestReferenceSpace('local');
+  const binding = new XRWebGLBinding(session, gl);
+  detector = createDetector();
+  ground = createXRGround({ gl, session, baseSpace, binding, detector,
+    mat: { size: MAT.markerSize, matPose: MAT_POSE, overrides: OVERRIDES } });
+  await joinIfRoom();
+  const mInv = new THREE.Matrix4(), camM = new THREE.Matrix4();
+  renderer.setAnimationLoop((t, frame) => {
+    if (!frame) return;
+    const pose = frame.getViewerPose(baseSpace);
+    if (pose) {
+      ground.onFrame(frame, pose.views[0]);
+      renderer.resetState();                    // the tap's raw GL vs three's state cache
+      const T = ground.datumWorld(frame);
+      if (T) {
+        content.matrix.fromArray(T);
+        content.visible = true;
+        if (sync) {
+          camM.fromArray(pose.views[0].transform.matrix);
+          mInv.copy(content.matrix).invert().multiply(camM);
+          sync.sendPose(mInv.toArray());
+        }
+      }
+    }
+    renderer.render(scene, camera);
+    statusXR();
+  });
+  hud.innerHTML = '<b>ars viewer</b> — AR: aim at the printed mat';
+}
+
+function statusXR() {
+  const s = ground.stats, gg = ground.group;
+  hud.innerHTML = `<b>ars viewer</b> AR · room ${roomCode || '—'} · ` +
+    `${store.all().filter((o) => RENDERABLE.has(o.kind)).length} object(s)\n` +
+    (gg.anchor ? '⚓ world-anchored' : gg.seenFusedPose ? '◈ fused, anchoring…' : 'looking for the mat') +
+    ` · ${gg.refs} ref${gg.confident ? ' (confident)' : ''} · ${s.markersInView} in view` +
+    ` · det ${s.det.toFixed(1)} ms · fus ${s.fusOk}/${s.fusReq}` +
+    (s.kEma ? ` · scale ×${s.kEma.toFixed(2)}` : '') +
+    (s.rejWhy ? `\nrej: ${s.rejWhy}` : '');
 }
 
 // boot
@@ -205,9 +290,17 @@ async function start() {
     hud.innerHTML = '<b>ars viewer</b> — test mode';
   } else {
     $('#start').addEventListener('click', start);
+    $('#start-ar').addEventListener('click', startXR);
+    if (navigator.xr && navigator.xr.isSessionSupported) {
+      navigator.xr.isSessionSupported('immersive-ar')
+        .then((ok) => { $('#start-ar').hidden = !ok; })
+        .catch(() => {});
+    }
     if (!roomCode) hud.innerHTML = '<b>ars viewer</b> — no room in URL (open from the studio QR); ' +
       'camera-only mode: the mat still localizes, the scene stays empty';
     else hud.innerHTML = '<b>ars viewer</b> — room ' + roomCode + ' · tap start';
+    // harness hooks (inert unless a test drives them)
+    window.__viewerXR = { store, content, joinWith, ground: () => ground, mode: () => mode };
   }
 }
 </script>

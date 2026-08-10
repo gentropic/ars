@@ -11,9 +11,12 @@ LWW scene store, project save/load, local autosave.
 
 Stage 2: the wire — press **share**, scan the QR with a phone, and
 `web/viewer.html` joins the room (vendored trystero, torrent signaling),
-receives the scene + blobs, localizes on the printed mat (≥2 markers), and
-renders it over the camera; the phone's pose comes back as an amber frustum
-in the studio viewport.
+receives the scene + blobs, localizes on the printed mat, and renders it over
+the camera; the phone's pose comes back as an amber frustum in the studio
+viewport. Stage 2b: the viewer is three-tier behind one URL — Android Chrome
+gets **world-anchored WebXR** (scan once, content stays glued to the table);
+everything else (iOS included) gets the strict marker-based magic-window
+(≥2 markers in view).
 
 ## Run
 
@@ -31,6 +34,8 @@ npm i                    # playwright, repo root
 node studio/harness/smoke.mjs        # editor core: store, LWW rules, scene
 node studio/harness/sync-smoke.mjs   # the wire: protocol over a fake room
                                      # pair + the real viewer page rendering
+node studio/harness/xr-smoke.mjs     # the anchored tier: real viewer against
+                                     # a WebXR stub — grounds, anchors, poses
 ```
 
 No trackers are touched by the smokes — the room is injected (fake pair). The

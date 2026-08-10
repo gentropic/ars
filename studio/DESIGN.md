@@ -88,9 +88,9 @@ frustum per viewer in the studio viewport.
 detection + `classGate` → `solveDatum` against the mat manifest (datum updates
 only with ≥2 gated references — the bench-magicwindow flip rule), the studio's
 own `objects.js` builders rendering the received scene in mat space over the
-camera. Works on any phone with a browser, including iOS. The WebXR m3
-"join room" mode (world-anchored via the datum anchor) is **stage 2b**,
-following the owed phone session.
+camera. Works on any phone with a browser, including iOS — and since 2b,
+Android Chrome upgrades in place to a WORLD-ANCHORED WebXR tier
+(`web/xr-ground.js`) behind the same URL.
 
 ## Distribution
 
@@ -112,9 +112,17 @@ dev shell IS the app.
    @gcu/qr; the four-action protocol; studio share button (QR + peers badge +
    presence frustums); `web/viewer.html` mat-window phone viewer. Smoke: the
    protocol over a fake room pair + the real viewer page rendering a received
-   scene. *Live-tracker + two-device test is manual, still owed.*
-   **2b** — m3 "join room" (world-anchored WebXR display), after the phone
-   session.
+   scene. *Field-verified live (phone on the printed mat) 2026-08-10.*
+   **2b (DONE 2026-08-10, phone re-verify owed)** — the viewer is THREE-TIER,
+   one URL: WebXR + camera-access (Android Chrome) runs `web/xr-ground.js` —
+   the m3 epoch-2 machinery extracted as an ESM module (camera tap, hit-test
+   fusion, classGate → solveDatum, ONE anchor with the hysteresis/replant
+   discipline) riding three's renderer.xr — content stays world-anchored when
+   markers leave view; every other platform (iOS included) keeps the strict
+   marker-based magic-window unchanged. Tier 1 is an ATTEMPT (camera-access
+   is only knowable at requestSession; visionOS rejects) falling back to
+   tier 2. Smoke: the real viewer against a three-compatible WebXR stub +
+   fake room — grounds, anchors, reports pose. m3 stays the reference app.
 3. **More layers** — PLY, GLB (vendor three loaders).
 4. **Condenser** — block-model layers via the §3.1 mount, both ends
    (needs the `clear:false` upstream debt for multi-mount frames).

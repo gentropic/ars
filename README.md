@@ -93,9 +93,13 @@ Done:
   scan the QR, and the viewer joins a serverless WebRTC room (vendored trystero),
   receives the scene, localizes on the printed mat, and renders it over the
   camera — the phone's pose returns as a presence frustum on the desk.
-  `studio/DESIGN.md` is the plan; next: m3 "join room" (WebXR), condenser
-  layers, single-file build. Smoke-tested headless (trackerless fake rooms);
-  the live two-device pass is a manual test still owed.
+  **Field-verified live.** The viewer is three-tier behind one URL: Android
+  Chrome upgrades to **world-anchored WebXR** (`web/xr-ground.js` — the m3
+  grounding machinery extracted as the §9-promised module, riding three's
+  renderer.xr); iOS and everything else keep the strict marker-based
+  magic-window. `studio/DESIGN.md` is the plan; next: condenser layers,
+  PLY/GLB, single-file build. The anchored tier is stub-verified headless;
+  its on-device pass rides the owed m3 phone session.
 
 Next:
 

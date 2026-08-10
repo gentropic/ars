@@ -87,7 +87,13 @@ Done:
   the embed drifts from `src/`. Four e2e scenarios green.
   *Phone re-verification of the three m3 upgrades still owed (one session).*
 
-Next (the §8b reconciliation — `webxr/SPEC.md` is the working spec):
+- **Studio, stage 1** (`studio/`) — the desktop mat-space editor: layer tree,
+  3D view with the reference mat at true scale (real 36h12 textures), primitives /
+  labels / STL / images, an LWW scene store already shaped to `@gcu/sync`'s
+  contract. `studio/DESIGN.md` is the plan: next stages wire Trystero sync to the
+  phone (m3 "join room"), then condenser layers. Smoke-tested headless.
+
+Next:
 
 - **ChArUco intrinsics (§3.2)** — recover real focal/principal point for accurate metric
   depth (the current focal = frame-width is a heuristic; orientation is already correct).

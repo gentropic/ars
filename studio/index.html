@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ars studio</title>
+<!-- vendored 36h12 dictionary (marker rasterization) — classic scripts, AR global -->
+<script src="../vendor/js-aruco2/cv.js"></script>
+<script src="../vendor/js-aruco2/aruco.js"></script>
+<style>
+  :root { color-scheme: dark; --bg: #14181e; --panel: #1b212a; --line: #2a323e;
+          --ink: #d8dee9; --dim: #7b8494; --amber: #e8b04b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+               font: 13px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  #app { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
+  #main { display: grid; grid-template-columns: 230px 1fr 250px; min-height: 0; }
+
+  #toolbar { display: flex; gap: 6px; align-items: center; padding: 7px 10px;
+             background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  #toolbar .brand { color: var(--amber); font-weight: 600; margin-right: 8px; }
+  #toolbar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+  button { font: inherit; color: var(--ink); background: #232b36; border: 1px solid var(--line);
+           border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+  button:hover { border-color: var(--amber); color: var(--amber); }
+  button.danger { border-color: #7a3a30; color: #d08070; margin-top: 10px; }
+
+  #left, #right { background: var(--panel); overflow-y: auto; min-height: 0; }
+  #left { border-right: 1px solid var(--line); padding: 8px; }
+  #right { border-left: 1px solid var(--line); padding: 10px; }
+  #center { position: relative; min-width: 0; }
+  #gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  h3 { margin: 2px 0 8px; font-size: 12px; color: var(--dim); font-weight: 600;
+       text-transform: uppercase; letter-spacing: .08em; }
+  .layer-row { display: flex; gap: 7px; align-items: center; padding: 3px 6px;
+               border-radius: 4px; cursor: pointer; margin-top: 4px; }
+  .layer-row.active { background: #232b36; }
+  .layer-row .lname { font-weight: 600; }
+  .eye { color: var(--amber); width: 14px; text-align: center; }
+  .obj-row { display: flex; gap: 7px; padding: 2px 6px 2px 26px; border-radius: 4px; cursor: pointer;
+             color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .obj-row:hover { background: #202834; }
+  .obj-row.selected { background: #2c3626; outline: 1px solid #4a5a3a; }
+  .okind { color: var(--dim); }
+
+  .field { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .field span { width: 64px; color: var(--dim); flex: none; }
+  .field input, .field select { flex: 1; min-width: 0; font: inherit; color: var(--ink);
+    background: #10151b; border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; }
+  .hint { color: var(--dim); }
+
+  #status { padding: 5px 10px; background: var(--panel); border-top: 1px solid var(--line);
+            color: var(--dim); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <span class="brand">ars studio</span>
+    <button id="add-axes">+ axes</button>
+    <button id="add-box">+ box</button>
+    <button id="add-label">+ label</button>
+    <button id="add-mesh">+ mesh (stl)</button>
+    <button id="add-image">+ image</button>
+    <span class="sep"></span>
+    <button id="add-layer">+ layer</button>
+    <span class="sep"></span>
+    <button id="save">save</button>
+    <button id="load">load</button>
+    <button id="clear">clear</button>
+  </div>
+  <div id="main">
+    <div id="left"><h3>layers</h3><div id="tree"></div></div>
+    <div id="center"><canvas id="gl"></canvas></div>
+    <div id="right"><h3>inspector</h3><div id="inspector"></div></div>
+  </div>
+  <div id="status">loading…</div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

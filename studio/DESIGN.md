@@ -172,8 +172,15 @@ dev shell IS the app.
    error; the centroids-as-points fallback is a later slice, as are LAS
    point clouds and multi-mount once condenser grows `clear:false` +
    render-target APIs).
-5. **Build** — @gcu/build single-file `studio.html`, deployed on Pages next
-   to the viewer.
+5. **Build — DROPPED (2026-08-10, Arthur's call).** The single-file
+   discipline earns its keep where the file and the SEAL are one promise
+   (micro: offline, double-click, nothing leaves the machine). The studio
+   broke the seal on purpose — the phone leg needs https and the share QR
+   encodes the serving URL, so a file:// studio dies at the moment of use.
+   Longevity is served differently here: the repo is the artifact (readable
+   modules, byte-pinned vendors, Pages serving the repo raw), and the durable
+   user artifact is the PROJECT file (scene.ars.json + blobs), which exists.
+   Revisit only if a sealed desk-only authoring mode becomes a real need.
 
 ## Non-goals
 

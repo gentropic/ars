@@ -105,7 +105,7 @@ Done:
   sub-blocked models included, and gridless ones degrade to graded point
   clouds. **LAS point clouds** and **PLY/GLB meshes** load too (three addon
   loaders vendored from the same pinned build). `studio/DESIGN.md` is the
-  plan; next: the single-file build. The anchored tier + mount are stub-verified headless; the on-device
+  plan (the single-file build was considered and dropped — rationale there). The anchored tier + mount are stub-verified headless; the on-device
   pass rides the owed m3 phone session.
 
 Next:

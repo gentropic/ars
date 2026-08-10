@@ -113,7 +113,10 @@ export function createView(canvas, store, opts = {}) {
   });
 
   canvas.addEventListener('pointermove', (e) => {
-    if (!mode) return;
+    if (!mode) {                                // idle: hint that objects pick
+      canvas.style.cursor = pick(e) ? 'pointer' : '';
+      return;
+    }
     const dx = e.clientX - last.x, dy = e.clientY - last.y;
     last = { x: e.clientX, y: e.clientY };
     if (Math.abs(dx) + Math.abs(dy) > 1) moved = true;

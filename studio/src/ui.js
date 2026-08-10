@@ -146,6 +146,13 @@ export function initUI(store, view, els) {
       name: (obj.name || obj.kind) + ' copy', t: [obj.t[0] + 0.02, obj.t[1] - 0.02, obj.t[2]] });
     view.select(copy.id);
   }
+  function saveProject() {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([store.exportProject()], { type: 'application/json' }));
+    a.download = 'scene.ars.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
   function removeLayerDeep(layer) {
     if (!confirm(`delete layer "${layer.name}" and its ${itemsOf(layer.id).length} item(s)?`)) return;
     for (const o of itemsOf(layer.id)) store.remove(o.id);
@@ -190,13 +197,7 @@ export function initUI(store, view, els) {
         } },
       '---',
       { label: 'open project…', action: () => pickFile('.json', async (f) => store.importProject(await f.text())) },
-      { label: 'save project', action: () => {
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(new Blob([store.exportProject()], { type: 'application/json' }));
-          a.download = 'scene.ars.json';
-          a.click();
-          URL.revokeObjectURL(a.href);
-        } },
+      { label: 'save project', shortcut: 'Ctrl+S', action: saveProject },
       '---',
       { label: 'demo scene', checked: layers().some((l) => l.name === 'demo'),
         action: async () => { const { toggleDemoScene } = await import('./demo.js'); await toggleDemoScene(store); } },
@@ -282,14 +283,15 @@ export function initUI(store, view, els) {
     root.append(field('name', obj.name || '', (v) => store.upsert({ id, name: v })));
     root.append(selectField('layer', obj.layer, layers().map((l) => [l.id, l.name]),
       (v) => store.upsert({ id, layer: v })));
-    root.append(field('x (mm)', mm(obj.t[0]), (v) => store.upsert({ id, t: [fromMm(v), obj.t[1], obj.t[2]] })));
-    root.append(field('y (mm)', mm(obj.t[1]), (v) => store.upsert({ id, t: [obj.t[0], fromMm(v), obj.t[2]] })));
-    root.append(field('z (mm)', mm(obj.t[2]), (v) => store.upsert({ id, t: [obj.t[0], obj.t[1], fromMm(v)] })));
-    root.append(field('rot z (°)', deg(obj.rz || 0), (v) => store.upsert({ id, rz: fromDeg(v) })));
-    root.append(field('scale', obj.s ?? 1, (v) => store.upsert({ id, s: Number(v) || 1 })));
+    root.append(field('x (mm)', mm(obj.t[0]), (v) => store.upsert({ id, t: [fromMm(v), obj.t[1], obj.t[2]] }), 1));
+    root.append(field('y (mm)', mm(obj.t[1]), (v) => store.upsert({ id, t: [obj.t[0], fromMm(v), obj.t[2]] }), 1));
+    root.append(field('z (mm)', mm(obj.t[2]), (v) => store.upsert({ id, t: [obj.t[0], obj.t[1], fromMm(v)] }), 1));
+    root.append(field('rot z (°)', deg(obj.rz || 0), (v) => store.upsert({ id, rz: fromDeg(v) }), 5));
+    root.append(field('scale', obj.s ?? 1, (v) => store.upsert({ id, s: Number(v) || 1 }), 0.1));
 
-    const prop = (k, label, conv = Number) =>
-      root.append(field(label, obj.props[k] ?? '', (v) => store.upsert({ id, props: { [k]: conv(v) } })));
+    const prop = (k, label, conv = Number, step) =>
+      root.append(field(label, obj.props[k] ?? '', (v) => store.upsert({ id, props: { [k]: conv(v) } }),
+        conv === Number ? (step ?? 0.005) : undefined));
     if (obj.kind === 'box') {
       prop('w', 'w (m)'); prop('d', 'd (m)'); prop('h', 'h (m)');
       root.append(selectField('style', String(obj.props.solid ?? true),
@@ -308,7 +310,7 @@ export function initUI(store, view, els) {
       root.append(selectField('ramp', obj.props.ramp || 'viridis',
         ['viridis', 'spectral', 'magma', 'turbo', 'greys'].map((r) => [r, r]),
         (v) => store.upsert({ id, props: { ramp: v } })));
-      prop('footprint', 'span (m)');
+      prop('footprint', 'span (m)', Number, 0.01);
       if (obj.props.count) root.append(el('div', 'hint',
         obj.props.count.toLocaleString() + ' points · las'));
     }
@@ -327,9 +329,9 @@ export function initUI(store, view, els) {
       root.append(selectField('ramp', obj.props.ramp || 'viridis',
         ['viridis', 'spectral', 'magma', 'turbo', 'greys'].map((r) => [r, r]),
         (v) => store.upsert({ id, props: { ramp: v } })));
-      prop('cutoff', 'cutoff');
-      prop('footprint', 'span (m)');
-      if (!obj.props.blob) prop('seed', 'seed');
+      prop('cutoff', 'cutoff', Number, 0.1);
+      prop('footprint', 'span (m)', Number, 0.01);
+      if (!obj.props.blob) prop('seed', 'seed', Number, 1);
       if (obj.props.count) root.append(el('div', 'hint',
         obj.props.count.toLocaleString() + ' blocks' + (obj.props.dm ? ' · .dm' : '')));
       root.append(selectField('edges', String(obj.props.edges !== false),
@@ -342,10 +344,11 @@ export function initUI(store, view, els) {
     root.append(del);
   }
 
-  function field(label, value, commit) {
+  function field(label, value, commit, step) {
     const wrap = el('label', 'field');
     wrap.append(el('span', '', label));
     const inp = document.createElement('input');
+    if (step != null) { inp.type = 'number'; inp.step = step; }   // native spinners + wheel
     inp.value = value;
     inp.onchange = () => commit(inp.value);
     wrap.append(inp);
@@ -385,6 +388,7 @@ export function initUI(store, view, els) {
     const o = view.selectedId() && store.get(view.selectedId());
     if (o) parts.push(`${o.kind} “${o.name || o.id}” @ ${mm(o.t[0])}, ${mm(o.t[1])}, ${mm(o.t[2])} mm`);
     parts.push(items.length + (items.length === 1 ? ' item' : ' items'));
+    if (window.__studioSync) parts.push('room ' + window.__studioSync.code);
     const mountObj = [...store.byKind('blocks'), ...store.byKind('points')][0];
     const err = view.blocksError && view.blocksError();
     if (mountObj && err) parts.push('⚠ ' + (mountObj.name || 'model') + ': ' + err);
@@ -409,10 +413,11 @@ export function initUI(store, view, els) {
   };
 
   window.addEventListener('keydown', (e) => {
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key.toLowerCase() === 's') { e.preventDefault(); saveProject(); return; }
     if (document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
     const id = view.selectedId();
     const obj = id && store.get(id);
-    const ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
     else if (ctrl && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
     else if (ctrl && e.key.toLowerCase() === 'd' && obj) { e.preventDefault(); duplicate(obj); }

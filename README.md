@@ -11,11 +11,13 @@ detector (marker pose), and a peer transport (state sync), and provides the one 
 none of them provides alone: a shared, **classed** coordinate frame. Lower risk,
 fully auditable, nothing to deprecate out from under it.
 
-> Status: **v0.1 — pure contract core.** This package currently ships the device-free,
-> zero-dependency heart of the system. The device edges and the datum solve are the
-> next slices (see *Roadmap*).
+> Status: **v0.2 — contract core + WebXR device slice.** The device-free,
+> zero-dependency heart of the system (`src/`), plus the phone-verified WebXR
+> device edge (`webxr/` — session kernel, marker pipeline, ArUco→ARCore fusion).
+> The two halves are not yet wired to each other; that reconciliation is the
+> current work (see *Roadmap* and `webxr/SPEC.md` §8b).
 
-## What's here (v0.1)
+## What's here (core)
 
 | module | spec | what |
 |---|---|---|
@@ -67,13 +69,23 @@ Done:
 - **Path B — magic-window** (`web/`) — vendored js-aruco2 detection + POSIT, the §5.2
   detector→mat convention **pinned and webcam-verified** (a `diag(1,1,-1)` conjugation
   with y-up corners), three.js overlay aligned to the detection frame.
+- **Path A — WebXR device slice** (`webxr/`, merged 2026-08) — session kernel, scene
+  forest, gizmo drawables, heavy-renderer mount contract, and the epoch-2 marker
+  pipeline (camera-access → ArUco → ARCore hit-test fusion → world-anchored roots),
+  all **phone-verified** (S24+); its own spec, benches, and a WebXR-stub e2e harness
+  live in `webxr/`. The `camera-access` spike (§7.4) is thereby validated on-device.
 
-Next:
+Next (the §8b reconciliation — `webxr/SPEC.md` is the working spec):
 
+- **Wire the halves** — m3's marker pipeline feeds corner observations through
+  `classGate` into `solveDatum`; the fused T_rig replaces per-marker anchoring
+  (one anchor for the datum, content hung in mat space). `solveRigid` replaces
+  the m3 ad-hoc basis. `webxr/harness/e2e-m3.js` is the merge gate: both
+  scenarios must stay green.
+- **Dictionary switch to ARUCO_MIP_36h12** (open decision) — the June design's
+  choice; needs regenerated marker PDFs and harness geometry from `dic.markSize`.
 - **ChArUco intrinsics (§3.2)** — recover real focal/principal point for accurate metric
   depth (the current focal = frame-width is a heuristic; orientation is already correct).
-- **Path A — WebXR** — `immersive-ar` + the `camera-access` spike (§7.4, the one
-  *contingent* dependency, validated on-device first) and per-rig registration (§5.4).
 - **Anchors (optional, Path A)** — WebXR *local* anchors to steady the datum between
   marker sightings (§7.3) and device-local *persistent* anchors to restore it across
   sessions (§14); config-gated + feature-detected, degrading to marker re-grounding.

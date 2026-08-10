@@ -1,0 +1,55 @@
+{
+  "kind": "ars-mat",
+  "version": 1,
+  "units": "m",
+  "note": "matPose translations are marker centers in mat space (origin = printed cross, x right, y up, z out of sheet)",
+  "markerSize": 0.08,
+  "variants": {
+    "ARUCO": {
+      "ids": [
+        7,
+        23,
+        98,
+        133
+      ]
+    },
+    "ARUCO_MIP_36h12": {
+      "ids": [
+        7,
+        23,
+        98,
+        133
+      ]
+    }
+  },
+  "layout": {
+    "7": {
+      "t": [
+        -0.055,
+        0.085,
+        0
+      ]
+    },
+    "23": {
+      "t": [
+        0.055,
+        0.085,
+        0
+      ]
+    },
+    "98": {
+      "t": [
+        -0.055,
+        -0.085,
+        0
+      ]
+    },
+    "133": {
+      "t": [
+        0.055,
+        -0.085,
+        0
+      ]
+    }
+  }
+}

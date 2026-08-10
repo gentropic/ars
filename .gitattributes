@@ -4,7 +4,15 @@
 *.json text eol=lf
 *.md   text eol=lf
 
+# Binary assets (printable markers, meshes).
+*.pdf binary
+*.stl binary
+
 # Vendored third-party files are byte-pinned (sha256 in vendor/MANIFEST.json).
 # Listed LAST so this wins over the *.js rule above: never apply EOL conversion,
 # or a checkout would diverge from the recorded hashes.
 vendor/** -text
+
+# Phone-verified reference artifacts (webxr/) are ground truth — byte-pinned
+# for the same reason: they embed vendored code byte-identical.
+webxr/reference/** -text

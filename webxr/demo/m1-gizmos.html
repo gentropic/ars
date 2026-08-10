@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ars — m1 (modular)</title>
+<!-- milestone 1 re-plumbed onto src/ modules. Behavior identical to
+     ../reference/ars.html (the phone-verified single file). -->
+<style>
+  :root{ --ink:#d7dae0; --dim:#7c828c; --amber:#e8b04b; --bg:#14161a; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 ui-monospace,Menlo,monospace; }
+  #splash{ padding:20px; max-width:640px }
+  #splash h1{ font-size:20px; margin:0 0 4px } #splash h1 em{ color:var(--dim); font-style:normal; font-weight:400 }
+  #splash p{ color:var(--dim); font-size:14px }
+  #enter{ display:block; width:100%; padding:16px; margin-top:16px; font:inherit; font-size:17px;
+          color:var(--amber); background:#1c1f25; border:1px solid #2a2e36; border-radius:6px }
+  #enter:disabled{ color:var(--dim) }
+  #hud{ display:none; position:fixed; inset:auto 0 0 0; padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+        background:rgba(20,22,26,.55); backdrop-filter:blur(4px); font-size:14px; pointer-events:none }
+  #hud b{ color:var(--amber); font-weight:600 }
+  #exit{ position:fixed; top:calc(10px + env(safe-area-inset-top)); right:10px; display:none;
+         padding:8px 14px; font:inherit; font-size:14px; color:var(--ink);
+         background:rgba(20,22,26,.55); border:1px solid #2a2e36; border-radius:6px; pointer-events:auto }
+</style>
+</head>
+<body>
+<div id="splash">
+  <h1>ars <em>// m1 — substrate, modular</em></h1>
+  <p>Spinning cube 1.5 m ahead, reticle on surfaces, tap places anchored cubes.</p>
+  <button id="enter">enter immersive-ar</button>
+  <p id="err" style="color:#e06c5a"></p>
+</div>
+<div id="hud"><b id="hud-status">initializing</b> <span id="hud-detail"></span></div>
+<button id="exit">exit</button>
+
+<script type="module">
+import { m4translation, m4rotY } from '../src/mat.js';
+import { makeNode, addChild } from '../src/scene.js';
+import { meshDrawable, lineDrawable, cubeGeom, axesGeom, ringGeom } from '../src/gizmos.js';
+import { startAR } from '../src/session.js';
+
+const $ = (id) => document.getElementById(id);
+const status = (s, d) => { $("hud-status").textContent = s; $("hud-detail").textContent = d || ""; };
+
+async function enter(){
+  $("enter").disabled = true;
+  let ars;
+  try{
+    ars = await startAR({
+      domOverlayRoot: document.body,
+      onEnd(){
+        $("hud").style.display = "none"; $("exit").style.display = "none";
+        $("splash").style.display = "block"; $("enter").disabled = false;
+      },
+    });
+  }catch(e){
+    $("err").textContent = "requestSession failed: " + e.name + " — " + e.message;
+    $("enter").disabled = false;
+    return;
+  }
+  $("splash").style.display = "none";
+  $("hud").style.display = "block";
+  $("exit").style.display = "block";
+  $("exit").onclick = () => ars.end();
+
+  const { gl, session, baseSpace, worldRoot } = ars;
+
+  const cubeGeo = cubeGeom(0.12);
+  const spinner = addChild(worldRoot.node, makeNode({
+    local: m4translation(0, 0, -1.5),
+    drawable: meshDrawable(gl, cubeGeo.positions, cubeGeo.normals, [0.91, 0.69, 0.29, 1]),
+    update(node, t){ const m = m4rotY(t * 0.0006); m[12] = 0; m[13] = 0; m[14] = -1.5; node.local.set(m); }
+  }));
+  addChild(spinner, makeNode({
+    local: m4translation(0, 0.09, 0),
+    drawable: (() => { const g = axesGeom(0.1); return lineDrawable(gl, g.positions, g.colors, gl.LINES); })()
+  }));
+  const reticle = addChild(worldRoot.node, makeNode({
+    visible: false,
+    drawable: (() => { const g = ringGeom(0.07, 48); return lineDrawable(gl, g.positions, g.colors, gl.LINES); })()
+  }));
+
+  const anchorCube = cubeGeom(0.08);
+  const colors = [[0.88,0.42,0.35,1], [0.55,0.75,0.45,1], [0.42,0.66,0.78,1], [0.72,0.55,0.82,1]];
+  let placed = 0, lastHit = null;
+
+  session.addEventListener("select", async () => {
+    if (!lastHit){ status("no surface under reticle", "aim at a floor or table"); return; }
+    const node = makeNode({ drawable: meshDrawable(gl, anchorCube.positions, anchorCube.normals, colors[placed % colors.length]) });
+    node.local[13] = 0.04;
+    addChild(node, makeNode({
+      drawable: (() => { const g = axesGeom(0.08); return lineDrawable(gl, g.positions, g.colors, gl.LINES); })()
+    }));
+    try{
+      if (lastHit.createAnchor){
+        const anchor = await lastHit.createAnchor();
+        addChild(ars.addRoot(anchor.anchorSpace).node, node);
+      } else {
+        const pose = lastHit.getPose(baseSpace);
+        const frozen = makeNode({ local: pose.transform.matrix });
+        addChild(frozen, node);
+        addChild(worldRoot.node, frozen);
+      }
+      placed++;
+      status("placed " + placed, lastHit.createAnchor ? "anchor root added" : "static (no anchors API)");
+    }catch(e){ status("anchor failed", e.name); }
+  });
+
+  ars.onFrame = (t, frame, hits) => {
+    if (hits.length){
+      lastHit = hits[0];
+      const hp = hits[0].getPose(baseSpace);
+      if (hp){ reticle.local.set(hp.transform.matrix); reticle.visible = true; }
+      if (!placed) status("surface found", "tap to place an anchored cube");
+    } else { lastHit = null; reticle.visible = false; }
+  };
+
+  status("looking for surfaces", "move the phone around");
+  ars.start();
+}
+
+(async () => {
+  if (!navigator.xr){ $("err").textContent = "navigator.xr absent on this origin."; $("enter").disabled = true; return; }
+  const ok = await navigator.xr.isSessionSupported("immersive-ar").catch(() => false);
+  if (!ok){ $("err").textContent = "immersive-ar not supported here."; $("enter").disabled = true; return; }
+  $("enter").addEventListener("click", enter);
+})();
+</script>
+</body>
+</html>

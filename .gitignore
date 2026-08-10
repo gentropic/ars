@@ -4,3 +4,18 @@ node_modules/
 .gcu-make.cache.json
 dist/
 coverage/
+
+# agent working files (local only, not part of the project)
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.claude/
+
+# merged-in source archive (contents live in webxr/)
+ars.zip
+
+# harness byproducts
+webxr/harness/out.png
+webxr/harness/condenser.js
+webxr/harness/package.json
+webxr/harness/package-lock.json

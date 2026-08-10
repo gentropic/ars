@@ -1,0 +1,122 @@
+<!doctype html>
+<meta charset="utf-8">
+<canvas id="c" width="800" height="600"></canvas>
+<script type="module">
+import { createRenderer, makeBlockGrid, buildBlockChunk, mulberry32,
+         mat4Inverse, transformPoint, mat4Perspective, mat4LookAt, mat4Multiply } from "./condenser.js";
+
+const log = (...a) => { console.log(...a); (window.__log ||= []).push(a.join(" ")); };
+
+/* mat helpers copied verbatim from ars-m2 */
+const IDENT = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+function m4mul(a, b, out){
+  out = out || new Float32Array(16);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++)
+    out[c*4+r] = a[r]*b[c*4] + a[4+r]*b[c*4+1] + a[8+r]*b[c*4+2] + a[12+r]*b[c*4+3];
+  return out;
+}
+function m4translation(x,y,z){ const m=new Float32Array(IDENT); m[12]=x; m[13]=y; m[14]=z; return m; }
+function m4rotX(rad){ const m=new Float32Array(IDENT), c=Math.cos(rad), s=Math.sin(rad); m[5]=c; m[6]=s; m[9]=-s; m[10]=c; return m; }
+function m4scale(s){ const m=new Float32Array(IDENT); m[0]=s; m[5]=s; m[10]=s; return m; }
+
+/* deposit — verbatim */
+function buildDeposit(){
+  const NI=48, NJ=48, NK=24, S=10, n=NI*NJ*NK;
+  const x=new Float64Array(n), y=new Float64Array(n), z=new Float64Array(n);
+  const chan=new Float32Array(n), cat=new Uint8Array(n), recIdx=new Uint32Array(n);
+  const rnd = mulberry32(1746);
+  const lode = (px,py,pz,cx,cy,cz,dip) => {
+    const dy=py-cy, dz=pz-cz, c=Math.cos(dip), s=Math.sin(dip);
+    const u=px-cx, v=dy*c+dz*s, w=-dy*s+dz*c;
+    return Math.exp(-(u*u/(160*160) + v*v/(45*45) + w*w/(18*18)));
+  };
+  let r=0;
+  for (let k=0;k<NK;k++) for (let j=0;j<NJ;j++) for (let i=0;i<NI;i++,r++){
+    const px=(i-(NI-1)/2)*S, py=(j-(NJ-1)/2)*S, pz=(k-(NK-1)/2)*S;
+    x[r]=px; y[r]=py; z[r]=pz;
+    const g = 4.2*lode(px,py,pz,-40,30,10,0.6) + 2.8*lode(px,py,pz,90,-60,-30,-0.35) + 0.05 + 0.12*rnd();
+    chan[r]=g; cat[r]=g>1?1:0; recIdx[r]=r;
+  }
+  const frame = { origin:[0,0,0], crs:null, units:"m" };
+  const axes = [
+    { origin:-(NI-1)/2*S, pitch:S, count:NI },
+    { origin:-(NJ-1)/2*S, pitch:S, count:NJ },
+    { origin:-(NK-1)/2*S, pitch:S, count:NK },
+  ];
+  const grid = makeBlockGrid(axes, frame);
+  const chunk = buildBlockChunk({x,y,z,chan,cat,recIdx}, grid, frame, mulberry32(7));
+  return { chunk, extent:[NI*S, NJ*S, NK*S], meta:{chan} };
+}
+
+try{
+  const canvas = document.getElementById("c");
+  const gl = canvas.getContext("webgl2", { antialias: true });
+  if (!gl) throw new Error("no webgl2");
+  log("GL:", gl.getParameter(gl.VERSION), "|", gl.getParameter(gl.RENDERER));
+
+  const fakeCanvas = { width: 800, height: 600, getContext: () => gl };
+  const renderer = createRenderer(fakeCanvas);
+  renderer.setBackground([0,0,0,0]);
+  const { chunk, extent, meta } = buildDeposit();
+  renderer.setDocBbox(chunk.bboxLocal);
+  renderer.addChunk(chunk);
+  log("chunk in:", chunk.count, "bbox:", Array.from(chunk.bboxLocal).join(","));
+
+  const [EX, EY, EZ] = extent;
+  const SCALE = 0.45 / Math.max(EX, EY);
+  const model = m4mul(m4translation(0, EZ/2*SCALE + 0.005, 0),
+                m4mul(m4rotX(-Math.PI/2), m4scale(SCALE)));
+
+  // fake XR camera: eye 0.9 m back and 0.6 m up, looking at the model center
+  const proj = mat4Perspective(60*Math.PI/180, 800/600, 0.05, 1000);
+  const viewWorld = mat4LookAt([0, 0.6, 0.9], [0, EZ/2*SCALE, 0], [0, 1, 0]);
+  const vpWorld = mat4Multiply(proj, viewWorld);
+  const eyeWorld = [0, 0.6, 0.9];
+
+  // duck fill — verbatim from the patched mount
+  const duck = { state: { viewProj:new Float32Array(16), view:new Float32Array(16),
+                          eye:[0,0,0], target:[0,0,0], near:0.1, fovY:1.0, ortho:false, halfH:1 } };
+  const s = duck.state;
+  m4mul(vpWorld, model, s.viewProj);
+  m4mul(viewWorld, model, s.view);
+  // model carries a uniform SCALE, so the rows of V·M are scale-long, and
+  // condenser reads them as the UNIT camera basis (uRight/uUp) — normalize.
+  for (const r of [0, 1, 2]){
+    const l = Math.hypot(s.view[r], s.view[4+r], s.view[8+r]) || 1;
+    s.view[r] /= l; s.view[4+r] /= l; s.view[8+r] /= l;
+  }
+  const inv = mat4Inverse(model);
+  const V = viewWorld;
+  s.eye = transformPoint(inv, eyeWorld);
+  s.target = transformPoint(inv, [eyeWorld[0]-V[2], eyeWorld[1]-V[6], eyeWorld[2]-V[10]]);
+  const scl = Math.hypot(model[0], model[1], model[2]) || 1;
+  s.near = 0.05 / scl;
+  s.fovY = 2*Math.atan(1/proj[5]);
+  log("eye local:", s.eye.map(v=>v.toFixed(1)).join(","), "near local:", s.near.toFixed(1), "fovY:", s.fovY.toFixed(3));
+
+  // grade cut-off via isolate filter — the new panel's code path
+  const mask = new Uint8Array(chunk.count);            // record idx == flat idx here
+  for (let i = 0; i < meta.chan.length; i++) mask[i] = meta.chan[i] >= 1.0 ? 1 : 0;
+  renderer.setFilter(mask, { isolate: true });
+  log("cutoff mask: keeping", mask.reduce((s,v)=>s+v,0), "of", mask.length);
+  gl.viewport(0, 0, 800, 600);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  for (let f = 0; f < 3; f++){
+    const r = renderer.draw(duck, { budget: 2_000_000, colorMode: 1, blockEdges: true });
+    log("frame", f, JSON.stringify(r));
+  }
+
+  const px = new Uint8Array(800*600*4);
+  gl.readPixels(0, 0, 800, 600, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  let lit = 0, alpha0 = 0;
+  for (let i = 0; i < px.length; i += 4){
+    if (px[i] | px[i+1] | px[i+2]) { lit++; if (px[i+3] === 0) alpha0++; }
+  }
+  log("lit pixels:", lit, "/ 480000 — of which alpha==0:", alpha0);
+  window.__done = { lit, alpha0 };
+}catch(e){
+  log("THREW:", e.message, e.stack && e.stack.split("\n")[1]);
+  window.__done = { error: e.message };
+}
+</script>

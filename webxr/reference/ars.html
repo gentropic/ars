@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ars</title>
+<!--
+  ars v0.1 — milestone 1: session kernel + node forest + gizmo drawables.
+  Single file, zero dependencies. WebGL2. The protocol epoch comes later;
+  this is the substrate.
+
+  ══ THE DRAWABLE CONTRACT (the law of the land) ═════════════════════════
+  A drawable is an object with:
+      draw({ gl, cam, model, time, viewport })
+  where
+    gl        WebGL2 context. The XR framebuffer is ALREADY BOUND and the
+              viewport ALREADY SET. Draw into the current framebuffer.
+              Bind everything you depend on, every call; trust no GL state
+              you didn't set; leave no promises about state after you.
+    cam       duck-typed camera: cam.state.viewProj is P·V for this view
+              (column-major Float32Array(16)). Same shape condenser reads.
+    model     the node's world matrix (root XRSpace pose · local chain).
+              A condenser mount composes: viewProj = cam.state.viewProj · model
+              and hands {state:{viewProj}} straight to renderer.draw().
+    time      XRFrame time (ms).
+    viewport  {x, y, width, height} — informational; already applied.
+
+  Frames (@gcu/frame) ride on nodes as data (`node.frame`), not on the
+  contract: world-coordinate mounts resolve their local origin themselves.
+  ════════════════════════════════════════════════════════════════════════
+
+  Scene shape: a FOREST, not a tree. Each root binds an XRSpace:
+    root 0  — the local reference space (world tracking)
+    root N  — one per anchor (tap-to-place), later one per marker,
+              eventually one per negotiated shared frame. Same structure.
+-->
+<style>
+  :root{ --ink:#d7dae0; --dim:#7c828c; --amber:#e8b04b; --bg:#14161a; }
+  body{ margin:0; background:var(--bg); color:var(--ink);
+        font:16px/1.5 ui-monospace,Menlo,monospace; }
+  #splash{ padding:20px; max-width:640px }
+  #splash h1{ font-size:20px; margin:0 0 4px } #splash h1 em{ color:var(--dim); font-style:normal; font-weight:400 }
+  #splash p{ color:var(--dim); font-size:14px }
+  #enter{ display:block; width:100%; padding:16px; margin-top:16px;
+          font:inherit; font-size:17px; color:var(--amber);
+          background:#1c1f25; border:1px solid #2a2e36; border-radius:6px }
+  #enter:disabled{ color:var(--dim) }
+  /* dom-overlay HUD, visible only inside the session */
+  #hud{ display:none; position:fixed; inset:auto 0 0 0; padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+        background:rgba(20,22,26,.55); backdrop-filter:blur(4px);
+        font-size:14px; pointer-events:none; }
+  #hud b{ color:var(--amber); font-weight:600 }
+  #exit{ position:fixed; top:calc(10px + env(safe-area-inset-top)); right:10px; display:none;
+         padding:8px 14px; font:inherit; font-size:14px; color:var(--ink);
+         background:rgba(20,22,26,.55); border:1px solid #2a2e36; border-radius:6px;
+         pointer-events:auto }
+</style>
+</head>
+<body>
+<div id="splash">
+  <h1>ars <em>// v0.1 — substrate</em></h1>
+  <p>Session kernel, node forest rooted in XR spaces, gizmo drawables.
+     A cube waits 1.5&nbsp;m ahead; a reticle tracks surfaces; tap places
+     an anchored cube. No dependencies, no three.js.</p>
+  <button id="enter">enter immersive-ar</button>
+  <p id="err" style="color:#e06c5a"></p>
+</div>
+<div id="hud"><b id="hud-status">initializing</b> <span id="hud-detail"></span></div>
+<button id="exit">exit</button>
+
+<script>
+"use strict";
+/* ── mat4 (column-major, GL) — the four ops raw WebGL needs ─────────── */
+const IDENT = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+function m4mul(a, b, out){                       // out = a·b
+  out = out || new Float32Array(16);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++){
+    out[c*4+r] = a[r]*b[c*4] + a[4+r]*b[c*4+1] + a[8+r]*b[c*4+2] + a[12+r]*b[c*4+3];
+  }
+  return out;
+}
+function m4translation(x, y, z){
+  const m = new Float32Array(IDENT); m[12]=x; m[13]=y; m[14]=z; return m;
+}
+function m4rotY(rad){
+  const m = new Float32Array(IDENT), c = Math.cos(rad), s = Math.sin(rad);
+  m[0]=c; m[2]=-s; m[8]=s; m[10]=c; return m;
+}
+function m3normalFrom(model){                    // rigid transforms: upper 3×3 verbatim
+  return new Float32Array([model[0],model[1],model[2], model[4],model[5],model[6], model[8],model[9],model[10]]);
+}
+
+/* ── node forest ────────────────────────────────────────────────────── */
+function makeNode({ local = null, drawable = null, update = null, visible = true } = {}){
+  return { local: local ? new Float32Array(local) : new Float32Array(IDENT),
+           drawable, update, visible, children: [], world: new Float32Array(16) };
+}
+function addChild(parent, child){ parent.children.push(child); return child; }
+// per-frame: worlds recomputed by a full walk. The scene is gizmo-scale;
+// dirty-flag caching earns its keep when a mount hosts thousands of nodes,
+// and the API shape doesn't change when it arrives.
+function updateWorlds(node, parentWorld){
+  m4mul(parentWorld, node.local, node.world);
+  for (const c of node.children) updateWorlds(c, node.world);
+}
+function walkVisible(node, fn){
+  if (!node.visible) return;
+  if (node.drawable) fn(node);
+  for (const c of node.children) walkVisible(c, fn);
+}
+
+/* ── gl utilities (copied discipline, not a shared package) ─────────── */
+function makeProgram(gl, vsSrc, fsSrc){
+  const sh = (type, src) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+      throw new Error("ars shader: " + gl.getShaderInfoLog(s));
+    return s;
+  };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+    throw new Error("ars link: " + gl.getProgramInfoLog(p));
+  return p;
+}
+
+/* ── drawable: flat-shaded mesh (hemisphere light, uniform color) ───── */
+const MESH_VS = `#version 300 es
+layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNrm;
+uniform mat4 uMVP; uniform mat3 uNrm;
+out vec3 vN;
+void main(){ vN = uNrm * aNrm; gl_Position = uMVP * vec4(aPos, 1.0); }`;
+const MESH_FS = `#version 300 es
+precision mediump float;
+uniform vec4 uColor; in vec3 vN; out vec4 o;
+void main(){
+  float up = clamp(dot(normalize(vN), vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5, 0.0, 1.0);
+  vec3 sky = vec3(1.0), ground = vec3(0.45);
+  o = vec4(uColor.rgb * mix(ground, sky, up), uColor.a);
+}`;
+function meshDrawable(gl, positions, normals, color){
+  const prog = makeProgram(gl, MESH_VS, MESH_FS);
+  const uMVP = gl.getUniformLocation(prog, "uMVP");
+  const uNrm = gl.getUniformLocation(prog, "uNrm");
+  const uColor = gl.getUniformLocation(prog, "uColor");
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const vbuf = (data, loc, size) => {
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  };
+  vbuf(positions, 0, 3); vbuf(normals, 1, 3);
+  gl.bindVertexArray(null);
+  const n = positions.length / 3;
+  const mvp = new Float32Array(16);
+  return {
+    draw({ gl, cam, model }){
+      gl.useProgram(prog);
+      gl.bindVertexArray(vao);
+      gl.uniformMatrix4fv(uMVP, false, m4mul(cam.state.viewProj, model, mvp));
+      gl.uniformMatrix3fv(uNrm, false, m3normalFrom(model));
+      gl.uniform4fv(uColor, color);
+      gl.enable(gl.DEPTH_TEST);
+      gl.drawArrays(gl.TRIANGLES, 0, n);
+      gl.bindVertexArray(null);
+    }
+  };
+}
+
+/* ── drawable: line batch (axes, reticle) ───────────────────────────── */
+const LINE_VS = `#version 300 es
+layout(location=0) in vec3 aPos; layout(location=1) in vec3 aCol;
+uniform mat4 uMVP; out vec3 vC;
+void main(){ vC = aCol; gl_Position = uMVP * vec4(aPos, 1.0); }`;
+const LINE_FS = `#version 300 es
+precision mediump float; in vec3 vC; out vec4 o;
+void main(){ o = vec4(vC, 1.0); }`;
+function lineDrawable(gl, positions, colors, mode){
+  const prog = makeProgram(gl, LINE_VS, LINE_FS);
+  const uMVP = gl.getUniformLocation(prog, "uMVP");
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const vbuf = (data, loc) => {
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+  };
+  vbuf(positions, 0); vbuf(colors, 1);
+  gl.bindVertexArray(null);
+  const n = positions.length / 3;
+  const mvp = new Float32Array(16);
+  return {
+    draw({ gl, cam, model }){
+      gl.useProgram(prog);
+      gl.bindVertexArray(vao);
+      gl.uniformMatrix4fv(uMVP, false, m4mul(cam.state.viewProj, model, mvp));
+      gl.enable(gl.DEPTH_TEST);
+      gl.drawArrays(mode, 0, n);
+      gl.bindVertexArray(null);
+    }
+  };
+}
+
+/* ── geometry generators ────────────────────────────────────────────── */
+function cubeGeom(s){
+  const h = s / 2, P = [], N = [];
+  const face = (n, a, b, c, d) => {                // two tris, outward normal n
+    for (const v of [a, b, c, a, c, d]){ P.push(...v); N.push(...n); }
+  };
+  face([0,0, 1], [-h,-h, h],[ h,-h, h],[ h, h, h],[-h, h, h]);
+  face([0,0,-1], [ h,-h,-h],[-h,-h,-h],[-h, h,-h],[ h, h,-h]);
+  face([ 1,0,0], [ h,-h, h],[ h,-h,-h],[ h, h,-h],[ h, h, h]);
+  face([-1,0,0], [-h,-h,-h],[-h,-h, h],[-h, h, h],[-h, h,-h]);
+  face([0, 1,0], [-h, h, h],[ h, h, h],[ h, h,-h],[-h, h,-h]);
+  face([0,-1,0], [-h,-h,-h],[ h,-h,-h],[ h,-h, h],[-h,-h, h]);
+  return { positions: new Float32Array(P), normals: new Float32Array(N) };
+}
+function axesGeom(s){
+  return { positions: new Float32Array([0,0,0, s,0,0,  0,0,0, 0,s,0,  0,0,0, 0,0,s]),
+           colors:    new Float32Array([.88,.42,.35, .88,.42,.35, .55,.75,.45, .55,.75,.45, .42,.66,.78, .42,.66,.78]) };
+}
+function ringGeom(r, n){
+  const P = [], C = [];
+  for (let i = 0; i < n; i++){
+    const t0 = (i / n) * Math.PI * 2, t1 = ((i + 1) / n) * Math.PI * 2;
+    P.push(Math.cos(t0)*r, 0, Math.sin(t0)*r,  Math.cos(t1)*r, 0, Math.sin(t1)*r);
+    C.push(.91,.69,.29, .91,.69,.29);
+  }
+  return { positions: new Float32Array(P), colors: new Float32Array(C) };
+}
+
+/* ── session kernel ─────────────────────────────────────────────────── */
+const $ = (id) => document.getElementById(id);
+const status = (s, d) => { $("hud-status").textContent = s; $("hud-detail").textContent = d || ""; };
+
+async function enterAR(){
+  $("enter").disabled = true;
+  let session;
+  try{
+    session = await navigator.xr.requestSession("immersive-ar", {
+      requiredFeatures: ["hit-test", "local"],
+      optionalFeatures: ["dom-overlay", "anchors"],
+      domOverlay: { root: document.body }
+    });
+  }catch(e){
+    $("err").textContent = "requestSession failed: " + e.name + " — " + e.message;
+    $("enter").disabled = false;
+    return;
+  }
+  $("splash").style.display = "none";
+  $("hud").style.display = "block";
+  $("exit").style.display = "block";
+  $("exit").onclick = () => session.end();
+
+  const canvas = document.createElement("canvas");
+  const gl = canvas.getContext("webgl2", { xrCompatible: true, antialias: true });
+  await gl.makeXRCompatible();
+  const glLayer = new XRWebGLLayer(session, gl);
+  session.updateRenderState({ baseLayer: glLayer });
+
+  const baseSpace = await session.requestReferenceSpace("local");
+  const viewerSpace = await session.requestReferenceSpace("viewer");
+  const hitSource = await session.requestHitTestSource({ space: viewerSpace });
+
+  /* ── build the forest ── */
+  // root 0: world tracking space
+  const worldRoot = { space: null, node: makeNode() };   // null space ⇒ baseSpace identity
+  // the greeter cube: 1.5 m ahead, 12 cm, slow spin
+  const cubeGeo = cubeGeom(0.12);
+  const spinner = addChild(worldRoot.node, makeNode({
+    local: m4translation(0, 0, -1.5),
+    drawable: meshDrawable(gl, cubeGeo.positions, cubeGeo.normals, [0.91, 0.69, 0.29, 1]),
+    update(node, t){ const m = m4rotY(t * 0.0006); m[12] = 0; m[13] = 0; m[14] = -1.5; node.local.set(m); }
+  }));
+  addChild(spinner, makeNode({
+    local: m4translation(0, 0.09, 0),
+    drawable: (() => { const g = axesGeom(0.1); return lineDrawable(gl, g.positions, g.colors, gl.LINES); })()
+  }));
+  // the reticle: pose written from hit-test each frame, hidden when no surface
+  const reticle = addChild(worldRoot.node, makeNode({
+    visible: false,
+    drawable: (() => { const g = ringGeom(0.07, 48); return lineDrawable(gl, g.positions, g.colors, gl.LINES); })()
+  }));
+  const forest = [worldRoot];
+
+  /* ── tap to place: anchor becomes a new root ── */
+  const anchorCube = cubeGeom(0.08);
+  const placedColors = [[0.88,0.42,0.35,1], [0.55,0.75,0.45,1], [0.42,0.66,0.78,1], [0.72,0.55,0.82,1]];
+  let placed = 0, lastHit = null;
+  session.addEventListener("select", async () => {
+    if (!lastHit){ status("no surface under reticle", "aim at a floor or table"); return; }
+    const color = placedColors[placed % placedColors.length];
+    const node = makeNode({
+      drawable: meshDrawable(gl, anchorCube.positions, anchorCube.normals, color)
+    });
+    node.local[13] = 0.04;                        // sit ON the surface, not in it
+    addChild(node, makeNode({
+      drawable: (() => { const g = axesGeom(0.08); return lineDrawable(gl, g.positions, g.colors, gl.LINES); })()
+    }));
+    try{
+      if (lastHit.createAnchor){
+        const anchor = await lastHit.createAnchor();
+        forest.push({ space: anchor.anchorSpace, node });   // a real anchor root
+      } else {
+        const pose = lastHit.getPose(baseSpace);            // fallback: frozen pose in world root
+        const frozen = makeNode({ local: pose.transform.matrix });
+        addChild(frozen, node);
+        addChild(worldRoot.node, frozen);
+      }
+      placed++;
+      status("placed " + placed, lastHit.createAnchor ? "anchor root added" : "static (no anchors API)");
+    }catch(e){
+      status("anchor failed", e.name);
+    }
+  });
+
+  /* ── frame loop ── */
+  const cam = { state: { viewProj: new Float32Array(16) } };  // the duck, reused
+  let tPrev = 0;
+  status("looking for surfaces", "move the phone around");
+
+  session.addEventListener("end", () => {
+    $("hud").style.display = "none";
+    $("exit").style.display = "none";
+    $("splash").style.display = "block";
+    $("enter").disabled = false;
+  });
+
+  const onFrame = (t, frame) => {
+    session.requestAnimationFrame(onFrame);
+    const pose = frame.getViewerPose(baseSpace);
+    tPrev = t;
+
+    // hit-test rides every frame; the reticle is its display
+    const hits = frame.getHitTestResults(hitSource);
+    if (hits.length){
+      lastHit = hits[0];
+      const hp = hits[0].getPose(baseSpace);
+      if (hp){ reticle.local.set(hp.transform.matrix); reticle.visible = true; }
+      if (!placed) status("surface found", "tap to place an anchored cube");
+    } else {
+      lastHit = null;
+      reticle.visible = false;
+    }
+
+    // update pass: behaviors, then world matrices per root
+    walkAll(worldRoot.node, (n) => n.update && n.update(n, t));
+    for (const root of forest){
+      let M = IDENT;
+      if (root.space){
+        const rp = frame.getPose(root.space, baseSpace);
+        if (!rp){ root._lost = true; continue; }            // tracking lost: skip, keep
+        root._lost = false;
+        M = rp.transform.matrix;
+      }
+      updateWorlds(root.node, M);
+    }
+
+    if (!pose) return;                                      // nothing to draw against yet
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+    gl.clearColor(0, 0, 0, 0);                              // transparent over passthrough
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    for (const view of pose.views){
+      const vp = glLayer.getViewport(view);
+      gl.viewport(vp.x, vp.y, vp.width, vp.height);
+      m4mul(view.projectionMatrix, view.transform.inverse.matrix, cam.state.viewProj);
+      const ctx = { gl, cam, model: null, time: t, viewport: vp };
+      for (const root of forest){
+        if (root._lost) continue;
+        walkVisible(root.node, (node) => { ctx.model = node.world; node.drawable.draw(ctx); });
+      }
+    }
+  };
+  const walkAll = (node, fn) => { fn(node); for (const c of node.children) walkAll(c, fn); };
+  session.requestAnimationFrame(onFrame);
+}
+
+/* ── boot ───────────────────────────────────────────────────────────── */
+(async () => {
+  if (!navigator.xr){ $("err").textContent = "navigator.xr absent on this origin."; $("enter").disabled = true; return; }
+  const ok = await navigator.xr.isSessionSupported("immersive-ar").catch(() => false);
+  if (!ok){ $("err").textContent = "immersive-ar not supported here."; $("enter").disabled = true; return; }
+  $("enter").addEventListener("click", enterAR);
+})();
+</script>
+</body>
+</html>

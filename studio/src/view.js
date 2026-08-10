@@ -5,6 +5,7 @@
 
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { build, RENDERABLE } from './objects.js';
+import { createBlocksMount, demoModelScale, demoLift } from './blocks.js';
 
 export function createView(canvas, store, opts = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -196,6 +197,46 @@ export function createView(canvas, store, opts = {}) {
   }
   new ResizeObserver(resize).observe(canvas.parentElement);
 
+  // ── the condenser mount (§3.1, order 0): blocks draw FIRST — their clear
+  // is the frame clear — then three renders on top with autoClear off ──────
+  const bgColor = new THREE.Color(0x14181e);
+  const mount = createBlocksMount(renderer.getContext(),
+    { background: [bgColor.r, bgColor.g, bgColor.b, 1] });
+  const _mv = new THREE.Matrix4(), _mvi = new THREE.Matrix4(), _vwi = new THREE.Matrix4();
+  let warnedMulti = false;
+
+  function drawBlocksUnder() {
+    const all = store.byKind('blocks').filter((o) => localVis(o));
+    if (all.length > 1 && !warnedMulti) {
+      console.warn('ars studio: only ONE blocks layer renders (condenser clear-on-draw — the clear:false upstream debt)');
+      warnedMulti = true;
+    }
+    const bo = all[0] || null;
+    const ready = mount.sync(bo);
+    if (!bo || !ready) { renderer.autoClear = true; scene.background = bgColor; return; }
+    renderer.autoClear = false;
+    scene.background = null;
+    const gl = renderer.getContext();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    gl.clearColor(bgColor.r, bgColor.g, bgColor.b, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    scene.updateMatrixWorld();
+    camera.updateMatrixWorld();
+    _vwi.copy(camera.matrixWorld).invert();
+    const entry = nodes.get(bo.id);
+    if (!entry) return;
+    const k = demoModelScale(bo.props);
+    _mv.copy(entry.node.matrixWorld)
+       .multiply(new THREE.Matrix4().makeScale(k, k, k))
+       .multiply(new THREE.Matrix4().makeTranslation(0, 0, demoLift(bo.props)));
+    _mvi.copy(_mv).invert();
+    mount.draw(camera.projectionMatrix.elements, _vwi.elements,
+      camera.position.toArray(), _mv.elements, _mvi.elements,
+      { edges: bo.props.edges !== false });
+    renderer.resetState();                     // raw GL vs three's state cache
+  }
+
   function frame() {
     requestAnimationFrame(frame);
     const cur = selected && nodes.get(selected);
@@ -203,6 +244,7 @@ export function createView(canvas, store, opts = {}) {
     if (cur) selBox.box.setFromObject(cur.node);
     const now = performance.now();
     for (const p of presence.values()) p.node.visible = now - p.at < 2500;
+    drawBlocksUnder();
     renderer.render(scene, camera);
   }
 
@@ -219,6 +261,8 @@ export function createView(canvas, store, opts = {}) {
     setVisibility(fn) { localVis = fn; reconcile(); },
     addStatic(node) { scene.add(node); },
     setPresence, dropPresence,
+    blocksStats: () => mount.stats,
+    blocksReady: () => mount.ready,
     onSelect: null,
   };
 

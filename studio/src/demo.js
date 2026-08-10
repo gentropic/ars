@@ -61,6 +61,9 @@ export async function toggleDemoScene(store) {
   add('label', 'ars demo', [0, 0.04, 0.08], { text: 'ars demo', size: 0.022 });
 
   const hash = await store.saveBlob(makeDemoSTL());
-  add('mesh', 'terrain', [0, -0.03, 0], { blob: hash, fmt: 'stl', unit: 'mm' });
+  add('mesh', 'terrain', [0, -0.045, 0], { blob: hash, fmt: 'stl', unit: 'mm' });
+  // the condenser deposit (§3.1 mount) — cutoff shows the two lodes
+  add('blocks', 'deposit', [0, 0.035, 0],
+    { seed: 1746, cutoff: 1.0, edges: true, footprint: 0.09 });
   return 'added';
 }

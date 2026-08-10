@@ -40,3 +40,11 @@ https://github.com/dmotz/trystero
 QR encoding (encode-only) for the studio's room-join display; the single
 `index.js` @gcu/build bundle from the auditable monorepo, which itself vendors
 Kazuhiko Arase's `qrcode-generator` 2.0.4 (MIT). © GCU / Kazuhiko Arase.
+
+## @gcu/condenser — MIT
+
+Streaming no-preprocess renderer for massive spatial elements (block models,
+point clouds) — the engine under micro; here it renders `blocks` layers in the
+studio and the phone viewer via the §3.1 mount contract (webxr/SPEC.md). The
+single `index.js` @gcu/build bundle from the auditable monorepo.
+© Arthur Endlein Correia (GCU).

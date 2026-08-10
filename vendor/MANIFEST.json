@@ -56,6 +56,17 @@
         { "path": "gcu-qr/index.js", "bytes": 56344, "sha256": "dcd93f9a5d630d1ef29bb1f8802c483da2cb6d49fa4c394c372de5e476688549" }
       ],
       "notes": "QR encode-only (GCU position: scanning is the phone's native camera). Used by the studio share dialog to display the room join URL. ESM: toMatrix / toSVG / toDataURL."
+    },
+    {
+      "name": "@gcu/condenser",
+      "version": "0.1.0",
+      "license": "MIT",
+      "homepage": "https://github.com/gentropic (auditable/ext/condenser)",
+      "source": "auditable monorepo ext/condenser/index.js (the @gcu/build bundle)",
+      "files": [
+        { "path": "condenser/index.js", "bytes": 399389, "sha256": "d259338bb65f523931e287d2847a82e01da07158c5b3747dc043a57763ffa635" }
+      ],
+      "notes": "Streaming block-model/point-cloud renderer (the engine under micro), mounted per webxr/SPEC.md §3.1: fake-canvas context handoff, eight-field camera duck in MODEL-LOCAL space (viewProj/view/eye/target/near/fovY/ortho/halfH; renormalize view rows under a scaled mount), setBackground([0,0,0,0]) for passthrough, draw()s at order 0 (it may clear — the clear:false upstream debt limits us to ONE mount per frame). Loaded lazily only when a blocks layer exists. The reference mount recipe lives in webxr/harness/test.html (headless-verified)."
     }
   ]
 }

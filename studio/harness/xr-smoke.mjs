@@ -191,6 +191,10 @@ const chk = (name, cond, extra) => {
                     t: [0, 0, 0], props: { w: 0.05, d: 0.05, h: 0.05, solid: true } });
     astore.upsert({ id: astore.newId(), kind: 'axes', name: 'a', layer: lid,
                     t: [0.06, 0, 0], props: { size: 0.05 } });
+    // a small condenser deposit (SwiftShader-friendly grid) — exercises the
+    // §3.1 mount inside the XR loop
+    astore.upsert({ id: astore.newId(), kind: 'blocks', name: 'dep', layer: lid,
+                    t: [-0.06, 0, 0], props: { seed: 7, ni: 12, nj: 12, nk: 6, cutoff: 0, footprint: 0.06 } });
     window.__gotPose = null;
     createSync(astore, pair.a, { role: 'authority',
       onPose: (id, p) => { window.__gotPose = p; } });
@@ -223,11 +227,14 @@ const chk = (name, cond, extra) => {
       xAxis: [M[0], M[1], M[2]].map((x) => +x.toFixed(3)),
       zAxis: [M[8], M[9], M[10]].map((x) => +x.toFixed(3)),
       gotPose: window.__gotPose ? window.__gotPose.map((x) => +x.toFixed(3)) : null,
+      blocks: v.blocksStats(),
     };
   })()`);
   console.log('  ', JSON.stringify(out));
   chk('entered XR mode', out.mode === 'xr');
-  chk('scene received over the wire', out.objects === 3 && out.nodes === 2);
+  chk('scene received over the wire', out.objects === 4 && out.nodes === 3);
+  chk('condenser mount drew in the XR loop', !!out.blocks && out.blocks.drawn > 0,
+    JSON.stringify(out.blocks));
   chk('grounded: fused + world-anchored', out.fusOk >= 2 && out.anchored, out.rej || '');
   chk('datum is confident (4 refs)', out.refs === 4 && out.confident);
   chk('datum at the printed origin',

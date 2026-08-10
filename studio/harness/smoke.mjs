@@ -99,8 +99,8 @@ const chk = (name, cond, extra) => {
              kinds: objs.map(o => o.kind).sort().join(','),
              blob: mesh ? !!s.getBlob(mesh.props.blob) : false };
   })()`);
-  chk('demo scene populated', demo.layers && demo.n === 7 && demo.blob,
-    JSON.stringify(demo));
+  chk('demo scene populated', demo.layers && demo.n === 8 && demo.blob &&
+    demo.kinds.includes('blocks'), JSON.stringify(demo));
   // picking priority: with the axes at the origin, clicking a BOX must select
   // the box (regression: three's 1-world-unit line threshold let the axes
   // swallow every pick — and orbit with it)

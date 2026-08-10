@@ -49,7 +49,7 @@ Kinds (staged, all designed now):
 | `label`   | text, size; billboard on the phone      | 1 |
 | `mesh`    | blob (hash), fmt: stl/ply/glb, unit     | 1 (stl) / 3 (ply, glb) |
 | `image`   | blob (hash), w/d (m) — plans, sections  | 3 |
-| `blocks`  | blob (hash) — condenser model, §3.1 mount both ends | 4 |
+| `blocks`  | seed/ni/nj/nk/pitch/cutoff/edges/footprint (demo recipe); blob later | 4 |
 
 Binary payloads (meshes, images, block models) are content-addressed **blobs**
 (sha-256), referenced from `props.blob` — precisely `@gcu/sync`'s blob lane
@@ -124,8 +124,20 @@ dev shell IS the app.
    tier 2. Smoke: the real viewer against a three-compatible WebXR stub +
    fake room — grounds, anchors, reports pose. m3 stays the reference app.
 3. **More layers** — PLY, GLB (vendor three loaders).
-4. **Condenser** — block-model layers via the §3.1 mount, both ends
-   (needs the `clear:false` upstream debt for multi-mount frames).
+4. **Condenser (v1 DONE 2026-08-10)** — `blocks` layers render through the
+   §3.1 mount on ALL THREE surfaces (studio viewport, magic-window, XR loop):
+   condenser draws at order 0 into the same GL context (its clear is the
+   frame clear; three renders on top, autoClear off, sharing clip-space z
+   because the duck reuses three's projection). The three side keeps a
+   wire-box proxy for picking/placement. v1 limits, deliberate: ONE blocks
+   layer per scene (condenser clear-on-draw — the `clear:false` upstream
+   debt); permanent MOVING mode (a ±1e-7 duck nudge defeats the exact
+   lastVP compare, since converged-accumulation assumes pixels persist,
+   which a composited viewport can't grant — the debt's other half); data
+   is the seeded DEMO DEPOSIT recipe in props (deterministic both ends,
+   nothing to blob). Real file formats (condenser's own streaming
+   providers — LAS etc.) ride the blob lane in a later slice, as does
+   multi-mount once condenser grows `clear:false` + render-target APIs.
 5. **Build** — @gcu/build single-file `studio.html`, deployed on Pages next
    to the viewer.
 

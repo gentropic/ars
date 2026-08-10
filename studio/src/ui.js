@@ -54,6 +54,9 @@ export function initUI(store, view, els) {
     img.src = URL.createObjectURL(new Blob([bytes]));
   });
 
+  els.addBlocks.onclick = () => addObject('blocks',
+    { seed: 1746, cutoff: 0, edges: true, footprint: 0.12 }, 'deposit');
+
   els.addLayer.onclick = () => {
     const l = store.upsert({ id: store.newId(), kind: 'layer', name: 'layer ' + (layers().length + 1) });
     state.activeLayer = l.id;
@@ -142,6 +145,14 @@ export function initUI(store, view, els) {
     if (obj.kind === 'mesh') root.append(selectField('unit', obj.props.unit || 'mm',
       [['mm', 'mm'], ['m', 'm']], (v) => store.upsert({ id, props: { unit: v } })));
     if (obj.kind === 'image') { prop('w', 'w (m)'); prop('d', 'd (m)'); }
+    if (obj.kind === 'blocks') {
+      prop('cutoff', 'cutoff (g)');
+      prop('footprint', 'span (m)');
+      prop('seed', 'seed');
+      root.append(selectField('edges', String(obj.props.edges !== false),
+        [['true', 'on'], ['false', 'off']],
+        (v) => store.upsert({ id, props: { edges: v === 'true' } })));
+    }
 
     const del = el('button', 'danger', 'delete');
     del.onclick = () => { store.remove(id); view.select(null); };

@@ -3,6 +3,7 @@
 // in asynchronously; the node exists (and transforms) immediately.
 
 import * as THREE from '../../vendor/three/three.module.min.js';
+import { demoExtent } from './blocks.js';
 
 export const AMBER = 0xe8b04b;
 
@@ -107,6 +108,22 @@ const builders = {
       g.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
         color: obj.props.color ?? 0x9aa4b2, flatShading: true })));
     }
+    return g;
+  },
+
+  blocks(obj) {
+    // three-side PROXY only: a wire box of the model's world extent, so
+    // picking / selection / drag work. The data renders through the §3.1
+    // condenser mount (blocks.js), under the three pass.
+    const [w, d, h] = demoExtent(obj.props);
+    const geo = new THREE.BoxGeometry(w, d, h);
+    geo.translate(0, 0, h / 2);                 // deposit sits ON the mat
+    const g = new THREE.Group();
+    g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color: 0x5b6470 })));
+    // an invisible solid keeps raycast-picking easy (lines need a 3 mm hit)
+    const pickBox = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ visible: false }));
+    g.add(pickBox);
     return g;
   },
 

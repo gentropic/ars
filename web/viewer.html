@@ -60,6 +60,7 @@ import { createStore } from '../studio/src/store.js';
 import { build, RENDERABLE } from '../studio/src/objects.js';
 import { createSync, APP_ID } from '../studio/src/sync.js';
 import { createXRGround } from './xr-ground.js';
+import { createBlocksMount, demoModelScale, demoLift } from '../studio/src/blocks.js';
 
 const $ = (s) => document.querySelector(s);
 const hud = $('#hud'), video = $('#video'), glCanvas = $('#gl');
@@ -115,6 +116,33 @@ function reconcile() {
     if (!live.has(id)) { content.remove(cur.node); nodes.delete(id); }
 }
 store.onChange(reconcile);
+
+// ── condenser blocks under the three pass (§3.1 order-0; DESIGN stage 4) ──
+let blocksMount = null;
+const _bm = new THREE.Matrix4(), _bmi = new THREE.Matrix4(), _bvwi = new THREE.Matrix4();
+function drawBlocksUnder(projEls, viewWorldEls, eyeArr, fb) {
+  if (!blocksMount) blocksMount = createBlocksMount(renderer.getContext());
+  const bo = content.visible ? (store.byKind('blocks')[0] || null) : null;
+  const ready = blocksMount.sync(bo);
+  if (!bo || !ready) { renderer.autoClear = true; return; }
+  const entry = nodes.get(bo.id);
+  if (!entry) { renderer.autoClear = true; return; }
+  renderer.autoClear = false;
+  const gl = renderer.getContext();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb || null);
+  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+  gl.clearColor(0, 0, 0, 0);                    // transparent — camera/passthrough
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  scene.updateMatrixWorld();
+  const k = demoModelScale(bo.props);
+  _bm.copy(entry.node.matrixWorld)
+     .multiply(new THREE.Matrix4().makeScale(k, k, k))
+     .multiply(new THREE.Matrix4().makeTranslation(0, 0, demoLift(bo.props)));
+  _bmi.copy(_bm).invert();
+  blocksMount.draw(projEls, viewWorldEls, eyeArr, _bm.elements, _bmi.elements,
+    { edges: bo.props.edges !== false });
+  renderer.resetState();
+}
 
 function joinWith(room) {
   sync = createSync(store, room, {
@@ -175,6 +203,10 @@ function loop() {
   }
   if (performance.now() - datumAt > 1500) content.visible = false;
 
+  camera.updateMatrixWorld();
+  _bvwi.copy(camera.matrixWorld).invert();
+  drawBlocksUnder(camera.projectionMatrix.elements, _bvwi.elements,
+    camera.position.toArray(), null);
   renderer.render(scene, camera);
   status();
 }
@@ -230,23 +262,29 @@ async function startXR() {
   ground = createXRGround({ gl, session, baseSpace, binding, detector,
     mat: { size: MAT.markerSize, matPose: MAT_POSE, overrides: OVERRIDES } });
   await joinIfRoom();
-  const mInv = new THREE.Matrix4(), camM = new THREE.Matrix4();
+  const mInv = new THREE.Matrix4(), camM = new THREE.Matrix4(), vwi = new THREE.Matrix4();
   renderer.setAnimationLoop((t, frame) => {
     if (!frame) return;
     const pose = frame.getViewerPose(baseSpace);
     if (pose) {
-      ground.onFrame(frame, pose.views[0]);
+      const view = pose.views[0];
+      ground.onFrame(frame, view);
       renderer.resetState();                    // the tap's raw GL vs three's state cache
       const T = ground.datumWorld(frame);
       if (T) {
         content.matrix.fromArray(T);
         content.visible = true;
         if (sync) {
-          camM.fromArray(pose.views[0].transform.matrix);
+          camM.fromArray(view.transform.matrix);
           mInv.copy(content.matrix).invert().multiply(camM);
           sync.sendPose(mInv.toArray());
         }
       }
+      camM.fromArray(view.transform.matrix);
+      vwi.copy(camM).invert();
+      drawBlocksUnder(view.projectionMatrix, vwi.elements,
+        [camM.elements[12], camM.elements[13], camM.elements[14]],
+        (session.renderState.baseLayer && session.renderState.baseLayer.framebuffer) || null);
     }
     renderer.render(scene, camera);
     statusXR();
@@ -300,7 +338,8 @@ function statusXR() {
       'camera-only mode: the mat still localizes, the scene stays empty';
     else hud.innerHTML = '<b>ars viewer</b> — room ' + roomCode + ' · tap start';
     // harness hooks (inert unless a test drives them)
-    window.__viewerXR = { store, content, joinWith, ground: () => ground, mode: () => mode };
+    window.__viewerXR = { store, content, joinWith, ground: () => ground, mode: () => mode,
+                          blocksStats: () => blocksMount && blocksMount.stats };
   }
 }
 </script>

@@ -133,11 +133,20 @@ dev shell IS the app.
    layer per scene (condenser clear-on-draw — the `clear:false` upstream
    debt); permanent MOVING mode (a ±1e-7 duck nudge defeats the exact
    lastVP compare, since converged-accumulation assumes pixels persist,
-   which a composited viewport can't grant — the debt's other half); data
-   is the seeded DEMO DEPOSIT recipe in props (deterministic both ends,
-   nothing to blob). Real file formats (condenser's own streaming
-   providers — LAS etc.) ride the blob lane in a later slice, as does
-   multi-mount once condenser grows `clear:false` + render-target APIs.
+   which a composited viewport can't grant — the debt's other half; now
+   expressed through `renderer.invalidate()`, the intended API). Data modes:
+   the seeded DEMO DEPOSIT recipe in props (deterministic both ends, nothing
+   to blob), and — **since the file slice (2026-08-10)** — REAL block models
+   over the blob lane: **CSV/TXT via `openBlockModel` and Datamine .dm via
+   `openDmModel`** (micro's own providers, already in the vendored bundle).
+   Both ends re-discover from the same bytes, so props carry only the blob
+   hash + styling: **color column** (from `header.numericColumns`, a
+   dropdown), **ramp preset** (micro's five: viridis/spectral/magma/turbo/
+   greys via `setLayerRamp`), grade **cutoff** (isolate mask), edges,
+   footprint. Gridded models only for now (sub-blocked/irregular → clear
+   error; the centroids-as-points fallback is a later slice, as are LAS
+   point clouds and multi-mount once condenser grows `clear:false` +
+   render-target APIs).
 5. **Build** — @gcu/build single-file `studio.html`, deployed on Pages next
    to the viewer.
 

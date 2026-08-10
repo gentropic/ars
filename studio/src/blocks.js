@@ -3,18 +3,20 @@
 // duck in MODEL-LOCAL space, order-0 drawing (condenser draws FIRST, three
 // renders on top with autoClear off — condenser's clear is the frame clear).
 //
-// v1 limits, deliberate:
-// - ONE blocks object per scene (condenser's clear-on-draw — the `clear:false`
-//   upstream debt — makes a second mount erase the first).
-// - MOVING-mode discipline everywhere: clear + budget-limited draw every
-//   frame, no settled accumulation (in AR the camera never settles anyway;
-//   on the desktop this keeps one code path).
-// - Data is the seeded DEMO DEPOSIT recipe carried in props (deterministic —
-//   both ends rebuild the same chunk from the same seed; nothing to blob).
-//   Real file formats ride the blob lane later.
+// Two data modes, one 'blocks' kind:
+// - DEMO: the seeded synthetic deposit recipe carried in props (deterministic
+//   both ends — nothing to blob).
+// - FILE: real block models over the blob lane — CSV/TXT via openBlockModel,
+//   Datamine .dm via openDmModel (both provided by the vendored condenser
+//   bundle; micro's own loaders). Both ends re-discover from the same bytes,
+//   so only the blob hash + the chosen channel ride in props. Color column
+//   (header.numericColumns), ramp preset, and grade cutoff are all live.
 //
-// The reference mount recipe is webxr/harness/test.html (headless-verified);
-// the duck math below is that code, made reusable.
+// v1 limits, deliberate: ONE blocks layer per scene (condenser clear-on-draw
+// — the `clear:false` upstream debt); MOVING-mode discipline everywhere via
+// renderer.invalidate() before each draw (converged accumulation assumes
+// pixels persist, which a composited three viewport can't grant); gridded
+// models only (sub-blocked / irregular → clear error, points fallback later).
 
 let condenser = null;                           // lazy: the 400 KB bundle loads
 async function loadCondenser() {                // only when a blocks layer exists
@@ -22,8 +24,16 @@ async function loadCondenser() {                // only when a blocks layer exis
   return condenser;
 }
 
+// micro's ramp presets (same author, same stops)
+export const RAMPS = {
+  viridis: [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]],
+  spectral: [[43, 131, 186], [171, 221, 164], [255, 255, 191], [253, 174, 97], [215, 25, 28]],
+  magma: [[0, 0, 4], [81, 18, 124], [183, 55, 121], [252, 137, 97], [252, 253, 191]],
+  turbo: [[48, 18, 59], [62, 156, 254], [34, 236, 161], [218, 226, 25], [122, 4, 3]],
+  greys: [[24, 24, 24], [235, 235, 235]],
+};
+
 // ── the demo deposit (test.html's synthetic orebody, parameterized) ───────
-// Two dipping gaussian lodes on a regular grid. Deterministic per seed.
 export function buildDemoChunk(C, props) {
   const NI = props.ni ?? 48, NJ = props.nj ?? 48, NK = props.nk ?? 24;
   const S = props.pitch ?? 10;                  // model units (m at deposit scale)
@@ -55,28 +65,49 @@ export function buildDemoChunk(C, props) {
   return { chunk, chan, extent: [NI * S, NJ * S, NK * S] };
 }
 
-// world-units-per-model-unit so the deposit's LARGEST footprint side spans
-// `footprint` meters of mat (props.footprint, default 12 cm)
 export function demoModelScale(props) {
   const NI = props.ni ?? 48, NJ = props.nj ?? 48, S = props.pitch ?? 10;
   return (props.footprint ?? 0.12) / (Math.max(NI, NJ) * S);
 }
-// model-units z-lift that sets the deposit ON the mat (grid is z-centered)
 export function demoLift(props) {
   return ((props.nk ?? 24) * (props.pitch ?? 10)) / 2;
 }
 export function demoExtent(props) {
   const NI = props.ni ?? 48, NJ = props.nj ?? 48, NK = props.nk ?? 24, S = props.pitch ?? 10;
   const k = demoModelScale(props);
-  return [NI * S * k, NJ * S * k, NK * S * k];  // world-size wire-box proxy
+  return [NI * S * k, NJ * S * k, NK * S * k];
+}
+
+// world extent of a FILE blocks object (props.dims = model-unit bbox size)
+export function fileExtent(props) {
+  const [dx, dy, dz] = props.dims || [1, 1, 1];
+  const k = (props.footprint ?? 0.12) / Math.max(dx, dy);
+  return [dx * k, dy * k, dz * k];
+}
+
+// ── discovery (used by the studio's file picker and the harness) ──────────
+// bytes → { gridded, count, cols: [{i,name}], chan, dims } or throws.
+export async function discoverBlockModel(bytes, { dm } = {}) {
+  const C = await loadCondenser();
+  const blob = new Blob([bytes]);
+  const open = dm ? C.openDmModel : C.openBlockModel;
+  const { header } = await open(blob, {});
+  const b = header.bbox;
+  return {
+    gridded: !!header.grid,
+    count: header.count,
+    cols: (header.numericColumns || []).map((c) => ({ i: c.i, name: String(c.name).trim() })),
+    chan: header.mapping ? header.mapping.chan : null,
+    dims: [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]],
+  };
 }
 
 // ── the mount ─────────────────────────────────────────────────────────────
-// createBlocksMount(gl) → { sync(obj), draw(...), stats }. One per view.
 export function createBlocksMount(gl, opts = {}) {
   let renderer = null, C = null, fake = null;
-  let built = null;                             // { key, chan, count }
-  let lastStats = null, loading = false, flip = false;
+  let built = null;                             // { key, count, k, off, error? }
+  let lastStats = null, loading = false;
+  const LAYER = 0;
 
   const m4mul = (a, b, out) => {
     for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++)
@@ -87,53 +118,99 @@ export function createBlocksMount(gl, opts = {}) {
                           eye: [0, 0, 0], target: [0, 0, 0], near: 0.1, fovY: 1.0, ortho: false, halfH: 1 } };
   const _vp = new Float32Array(16);
 
+  async function ensureRenderer() {
+    C = await loadCondenser();
+    if (!renderer) {
+      fake = { width: gl.drawingBufferWidth, height: gl.drawingBufferHeight, getContext: () => gl };
+      renderer = C.createRenderer(fake);
+      // condenser's MOVING draw clears with ITS background: transparent
+      // for passthrough (viewer), the panel color for the studio
+      renderer.setBackground(opts.background ?? [0, 0, 0, 0]);
+    }
+  }
+
+  function applyStyle(props, chanAll) {
+    renderer.setLayerRamp(LAYER, C.rampPixels(256, RAMPS[props.ramp] || RAMPS.viridis));
+    const cutoff = props.cutoff ?? 0;
+    if (cutoff > 0 && chanAll) {
+      const mask = new Uint8Array(chanAll.length);
+      for (let i = 0; i < chanAll.length; i++) mask[i] = chanAll[i] >= cutoff ? 1 : 0;
+      renderer.setFilter(mask, { isolate: true }, LAYER);
+    } else renderer.setFilter(null, {}, LAYER);
+  }
+
+  async function buildDemo(obj) {
+    const { chunk, chan, extent } = buildDemoChunk(C, obj.props);
+    renderer.removeLayer(LAYER);
+    renderer.setDocBbox(chunk.bboxLocal);
+    renderer.addChunk(chunk, 'base', LAYER);
+    applyStyle(obj.props, chan);
+    return { count: chunk.count, chanAll: chan,
+             k: demoModelScale(obj.props), off: [0, 0, demoLift(obj.props)], extent };
+  }
+
+  async function buildFile(obj) {
+    const bytes = opts.getBlob && opts.getBlob(obj.props.blob);
+    if (!bytes) return null;                    // blob still in transit — retry
+    const blob = new Blob([bytes]);
+    const open = obj.props.dm ? C.openDmModel : C.openBlockModel;
+    let { header, streamChunks } = await open(blob, {});
+    if (obj.props.chan != null && header.mapping && header.mapping.chan !== obj.props.chan)
+      ({ header, streamChunks } = await open(blob, { mapping: { ...header.mapping, chan: obj.props.chan } }));
+    if (!header.grid) return { error: 'no regular grid detected — not supported yet' };
+    const b = header.bbox;
+    // frame origin at xy-center / z-min: frame-local coords are centered on
+    // the sheet and start at z = 0 — the deposit sits ON the mat
+    const frame = { origin: [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, b.min[2]],
+                    crs: null, units: 'm' };
+    const grid = C.makeBlockGrid([header.grid.x, header.grid.y, header.grid.z], frame);
+    renderer.removeLayer(LAYER);
+    const chanAll = new Float32Array(header.count);
+    const cb = C.createBlockChunkBuilder({ frame, grid, chunkSize: 1 << 17, batchSize: 1 << 21,
+      seed: 1, onChunk: (c) => renderer.addChunk(c, 'base', LAYER) });
+    for await (const rc of streamChunks({ chunkPoints: 1 << 17 })) {
+      if (rc.recStart != null && rc.recStart + rc.count <= chanAll.length)
+        for (let i = 0; i < rc.count; i++) chanAll[rc.recStart + i] = rc.chan[i];
+      cb.push(rc);
+    }
+    const doc = cb.flush();
+    renderer.setDocBbox(doc.bboxLocal);
+    applyStyle(obj.props, chanAll);
+    const dims = [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]];
+    const k = (obj.props.footprint ?? 0.12) / Math.max(dims[0], dims[1]);
+    return { count: doc.count, chanAll, k, off: [0, 0, 0], extent: dims };
+  }
+
   return {
     get stats() { return lastStats; },
-    get ready() { return !!built; },
+    get ready() { return !!built && !built.error; },
+    get error() { return built && built.error; },
+    // model-local → object-local placement: scale + z-lift for the duck
+    modelParams() { return built && !built.error ? { k: built.k, off: built.off } : null; },
 
-    // (re)build condenser state for the blocks object; no-op when unchanged.
-    // Returns true once ready. obj === null tears down.
+    // (re)build for the blocks object; no-op when unchanged. obj null → off.
     sync(obj) {
       if (!obj) { built = null; return false; }
-      const key = JSON.stringify([obj.props.seed, obj.props.ni, obj.props.nj, obj.props.nk,
-                                  obj.props.pitch, obj.props.cutoff, obj.props.edges]);
-      if (built && built.key === key) return true;
+      const p = obj.props;
+      const key = JSON.stringify([p.blob, p.dm, p.chan, p.seed, p.ni, p.nj, p.nk, p.pitch,
+                                  p.cutoff, p.ramp, p.edges, p.footprint]);
+      if (built && built.key === key) return !built.error;
       if (loading) return false;
       loading = true;
-      loadCondenser().then((mod) => {
-        C = mod;
-        if (!renderer) {
-          fake = { width: gl.drawingBufferWidth, height: gl.drawingBufferHeight, getContext: () => gl };
-          renderer = C.createRenderer(fake);
-          // condenser's MOVING draw clears with ITS background: transparent
-          // for passthrough (viewer), the panel color for the studio
-          renderer.setBackground(opts.background ?? [0, 0, 0, 0]);
-        }
-        const { chunk, chan } = buildDemoChunk(C, obj.props);
-        renderer.setDocBbox(chunk.bboxLocal);
-        renderer.addChunk(chunk);
-        const cutoff = obj.props.cutoff ?? 0;
-        if (cutoff > 0) {
-          const mask = new Uint8Array(chan.length);
-          for (let i = 0; i < chan.length; i++) mask[i] = chan[i] >= cutoff ? 1 : 0;
-          renderer.setFilter(mask, { isolate: true });
-        } else renderer.setFilter(null);
-        built = { key, count: chunk.count };
+      (async () => {
+        await ensureRenderer();
+        const r = p.blob ? await buildFile(obj) : await buildDemo(obj);
+        if (r) built = { key, ...r };           // null = blob pending, retry next frame
         loading = false;
-      }).catch((e) => { loading = false; console.error('ars blocks:', e); });
-      return !!built;
+      })().catch((e) => { built = { key, error: e.message }; loading = false; console.error('ars blocks:', e); });
+      return false;
     },
 
     // §3.1 order-0 draw. Call BEFORE the three render, with autoClear off.
-    //   projM      — camera projection (column-major 16)
-    //   viewWorldM — world → eye (camera.matrixWorldInverse)
-    //   eyeWorld   — camera position in world
-    //   modelM     — blocks model → world (object wrapper world matrix)
-    //   invModelM  — its inverse
-    // All in the SAME world frame three renders in; the duck pulls everything
-    // model-local per the contract (rigid-space rule: renormalize view rows).
-    draw(projM, viewWorldM, eyeWorld, modelM, invModelM, opts = {}) {
-      if (!built || !renderer) return null;
+    // All matrices in the SAME world frame three renders in; the duck pulls
+    // everything model-local (rigid-space rule: renormalize view rows).
+    draw(projM, viewWorldM, eyeWorld, modelM, invModelM, drawOpts = {}) {
+      if (!built || built.error || !renderer) return null;
       // §3.1: update the fake canvas w/h to the viewport each draw
       fake.width = gl.drawingBufferWidth; fake.height = gl.drawingBufferHeight;
       const s = duck.state;
@@ -153,17 +230,13 @@ export function createBlocksMount(gl, opts = {}) {
       const scl = Math.hypot(modelM[0], modelM[1], modelM[2]) || 1;
       s.near = 0.02 / scl;
       s.fovY = 2 * Math.atan(1 / projM[5]);
-      // keep condenser in MOVING mode (full re-raster under our per-frame
-      // clear): its converged state assumes accumulated pixels persist, which
-      // a composited three viewport can't grant (the accumulation half of the
-      // clear:false upstream debt). ±1e-7 defeats the exact lastVP compare
-      // and is far below visual precision. AR is permanently MOVING anyway.
-      flip = !flip;
-      s.viewProj[12] += flip ? 1e-7 : -1e-7;
+      // MOVING-mode discipline: our composited viewport can't preserve the
+      // accumulated pixels converged mode assumes, so dirty every frame
+      renderer.invalidate();
       lastStats = renderer.draw(duck, {
-        budget: opts.budget ?? 1_500_000,
-        colorMode: opts.colorMode ?? 1,
-        blockEdges: opts.edges ?? true,
+        budget: drawOpts.budget ?? 1_500_000,
+        colorMode: drawOpts.colorMode ?? 1,
+        blockEdges: drawOpts.edges ?? true,
       });
       return lastStats;
     },

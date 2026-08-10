@@ -3,7 +3,7 @@
 // in asynchronously; the node exists (and transforms) immediately.
 
 import * as THREE from '../../vendor/three/three.module.min.js';
-import { demoExtent } from './blocks.js';
+import { demoExtent, fileExtent } from './blocks.js';
 
 export const AMBER = 0xe8b04b;
 
@@ -115,7 +115,7 @@ const builders = {
     // three-side PROXY only: a wire box of the model's world extent, so
     // picking / selection / drag work. The data renders through the §3.1
     // condenser mount (blocks.js), under the three pass.
-    const [w, d, h] = demoExtent(obj.props);
+    const [w, d, h] = obj.props.blob ? fileExtent(obj.props) : demoExtent(obj.props);
     const geo = new THREE.BoxGeometry(w, d, h);
     geo.translate(0, 0, h / 2);                 // deposit sits ON the mat
     const g = new THREE.Group();

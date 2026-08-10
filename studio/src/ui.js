@@ -54,8 +54,20 @@ export function initUI(store, view, els) {
     img.src = URL.createObjectURL(new Blob([bytes]));
   });
 
-  els.addBlocks.onclick = () => addObject('blocks',
-    { seed: 1746, cutoff: 0, edges: true, footprint: 0.12 }, 'deposit');
+  els.addBlocks.onclick = () => pickFile('.csv,.txt,.dm', async (file) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const dm = /\.dm$/i.test(file.name);
+    const { discoverBlockModel } = await import('./blocks.js');
+    let d;
+    try { d = await discoverBlockModel(bytes, { dm }); }
+    catch (e) { alert('block model: ' + e.message); return; }
+    if (!d.gridded) { alert('no regular grid detected — sub-blocked / irregular models are not supported yet'); return; }
+    const hash = await store.saveBlob(bytes);
+    addObject('blocks', {
+      blob: hash, dm, chan: d.chan, cols: d.cols, dims: d.dims, count: d.count,
+      ramp: 'viridis', cutoff: 0, edges: true, footprint: 0.12,
+    }, file.name.replace(/\.[^.]+$/, ''));
+  });
 
   els.addLayer.onclick = () => {
     const l = store.upsert({ id: store.newId(), kind: 'layer', name: 'layer ' + (layers().length + 1) });
@@ -146,9 +158,19 @@ export function initUI(store, view, els) {
       [['mm', 'mm'], ['m', 'm']], (v) => store.upsert({ id, props: { unit: v } })));
     if (obj.kind === 'image') { prop('w', 'w (m)'); prop('d', 'd (m)'); }
     if (obj.kind === 'blocks') {
-      prop('cutoff', 'cutoff (g)');
+      if (obj.props.blob && obj.props.cols && obj.props.cols.length) {
+        root.append(selectField('color by', String(obj.props.chan),
+          obj.props.cols.map((c) => [String(c.i), c.name]),
+          (v) => store.upsert({ id, props: { chan: Number(v) } })));
+      }
+      root.append(selectField('ramp', obj.props.ramp || 'viridis',
+        ['viridis', 'spectral', 'magma', 'turbo', 'greys'].map((r) => [r, r]),
+        (v) => store.upsert({ id, props: { ramp: v } })));
+      prop('cutoff', 'cutoff');
       prop('footprint', 'span (m)');
-      prop('seed', 'seed');
+      if (!obj.props.blob) prop('seed', 'seed');
+      if (obj.props.count) root.append(el('div', 'hint',
+        obj.props.count.toLocaleString() + ' blocks' + (obj.props.dm ? ' · .dm' : '')));
       root.append(selectField('edges', String(obj.props.edges !== false),
         [['true', 'on'], ['false', 'off']],
         (v) => store.upsert({ id, props: { edges: v === 'true' } })));

@@ -99,9 +99,11 @@ Done:
   renderer.xr); iOS and everything else keep the strict marker-based
   magic-window. **Condenser block models** render as `blocks` layers through
   the webxr-SPEC §3.1 mount on all three surfaces — studio viewport,
-  magic-window, and the XR loop — with a seeded demo deposit synced by recipe
-  (grade cutoff and edges in the inspector). `studio/DESIGN.md` is the plan;
-  next: real block-model files over the blob lane, PLY/GLB, single-file
+  magic-window, and the XR loop. Load **real models — CSV/TXT and Datamine
+  .dm** — over the blob lane (micro's own streaming providers, vendored),
+  pick the color column, ramp preset, and grade cutoff in the inspector; a
+  seeded demo deposit ships in the demo scene. `studio/DESIGN.md` is the
+  plan; next: sub-blocked models, LAS point clouds, PLY/GLB, single-file
   build. The anchored tier + mount are stub-verified headless; the on-device
   pass rides the owed m3 phone session.
 

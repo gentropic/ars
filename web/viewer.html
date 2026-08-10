@@ -60,7 +60,7 @@ import { createStore } from '../studio/src/store.js';
 import { build, RENDERABLE } from '../studio/src/objects.js';
 import { createSync, APP_ID } from '../studio/src/sync.js';
 import { createXRGround } from './xr-ground.js';
-import { createBlocksMount, demoModelScale, demoLift } from '../studio/src/blocks.js';
+import { createBlocksMount } from '../studio/src/blocks.js';
 
 const $ = (s) => document.querySelector(s);
 const hud = $('#hud'), video = $('#video'), glCanvas = $('#gl');
@@ -121,12 +121,14 @@ store.onChange(reconcile);
 let blocksMount = null;
 const _bm = new THREE.Matrix4(), _bmi = new THREE.Matrix4(), _bvwi = new THREE.Matrix4();
 function drawBlocksUnder(projEls, viewWorldEls, eyeArr, fb) {
-  if (!blocksMount) blocksMount = createBlocksMount(renderer.getContext());
+  if (!blocksMount) blocksMount = createBlocksMount(renderer.getContext(),
+    { getBlob: (h) => store.getBlob(h) });
   const bo = content.visible ? (store.byKind('blocks')[0] || null) : null;
   const ready = blocksMount.sync(bo);
   if (!bo || !ready) { renderer.autoClear = true; return; }
   const entry = nodes.get(bo.id);
-  if (!entry) { renderer.autoClear = true; return; }
+  const mp = blocksMount.modelParams();
+  if (!entry || !mp) { renderer.autoClear = true; return; }
   renderer.autoClear = false;
   const gl = renderer.getContext();
   gl.bindFramebuffer(gl.FRAMEBUFFER, fb || null);
@@ -134,10 +136,9 @@ function drawBlocksUnder(projEls, viewWorldEls, eyeArr, fb) {
   gl.clearColor(0, 0, 0, 0);                    // transparent — camera/passthrough
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   scene.updateMatrixWorld();
-  const k = demoModelScale(bo.props);
   _bm.copy(entry.node.matrixWorld)
-     .multiply(new THREE.Matrix4().makeScale(k, k, k))
-     .multiply(new THREE.Matrix4().makeTranslation(0, 0, demoLift(bo.props)));
+     .multiply(new THREE.Matrix4().makeScale(mp.k, mp.k, mp.k))
+     .multiply(new THREE.Matrix4().makeTranslation(mp.off[0], mp.off[1], mp.off[2]));
   _bmi.copy(_bm).invert();
   blocksMount.draw(projEls, viewWorldEls, eyeArr, _bm.elements, _bmi.elements,
     { edges: bo.props.edges !== false });

@@ -142,6 +142,41 @@ const chk = (name, cond, extra) => {
      !__studio.store.all().some(o => o.kind === 'mesh')`);
   chk('demo scene toggles off cleanly', gone);
 
+  // CSV block model over the blob lane: synthesize a small gridded model,
+  // load it the way the file picker does, verify draw / column switch / cutoff
+  const csv = await page.evaluate(`(async () => {
+    const { discoverBlockModel } = await import('/studio/src/blocks.js');
+    let rows = ['x,y,z,au,cu'];
+    for (let k = 0; k < 4; k++) for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++)
+      rows.push([i * 5, j * 5, k * 5, (i + j) / 10, (k + 1) / 4].join(','));
+    const bytes = new TextEncoder().encode(rows.join('\\n'));
+    const d = await discoverBlockModel(bytes, { dm: false });
+    const s = __studio.store;
+    const hash = await s.saveBlob(bytes);
+    const layer = s.byKind('layer')[0] || s.upsert({ id: s.newId(), kind: 'layer', name: 'L' });
+    const obj = s.upsert({ id: s.newId(), kind: 'blocks', name: 'model', layer: layer.id,
+      t: [0, 0, 0], props: { blob: hash, dm: false, chan: d.chan, cols: d.cols, dims: d.dims,
+        count: d.count, ramp: 'viridis', cutoff: 0, edges: true, footprint: 0.1 } });
+    return { gridded: d.gridded, count: d.count, cols: d.cols.map((c) => c.name).join(','),
+             dims: d.dims, id: obj.id };
+  })()`);
+  chk('csv model discovered (grid + columns)',
+    csv.gridded && csv.count === 256 && csv.cols === 'au,cu', JSON.stringify(csv));
+  await page.waitForFunction('__studio.view.blocksReady()', { timeout: 20000 });
+  await page.waitForTimeout(400);
+  const drew = await page.evaluate('__studio.view.blocksStats()');
+  chk('csv model draws', drew && drew.drawn > 0, JSON.stringify(drew));
+  const other = await page.evaluate(`(async () => {
+    const s = __studio.store;
+    const obj = s.all().find((o) => o.kind === 'blocks');
+    const cu = obj.props.cols.find((c) => c.name === 'cu');
+    s.upsert({ id: obj.id, props: { chan: cu.i, cutoff: 0.6, ramp: 'magma' } });
+    await new Promise((r) => setTimeout(r, 1200));
+    return __studio.view.blocksStats();
+  })()`);
+  chk('column switch + cutoff + ramp rebuild draws', other && other.drawn > 0,
+    JSON.stringify(other));
+
   chk('no page errors (end)', errors.length === 0, errors.join('; '));
 
   await browser.close();

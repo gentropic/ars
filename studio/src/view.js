@@ -5,7 +5,7 @@
 
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { build, RENDERABLE } from './objects.js';
-import { createBlocksMount, demoModelScale, demoLift } from './blocks.js';
+import { createBlocksMount } from './blocks.js';
 
 export function createView(canvas, store, opts = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -201,7 +201,7 @@ export function createView(canvas, store, opts = {}) {
   // is the frame clear — then three renders on top with autoClear off ──────
   const bgColor = new THREE.Color(0x14181e);
   const mount = createBlocksMount(renderer.getContext(),
-    { background: [bgColor.r, bgColor.g, bgColor.b, 1] });
+    { background: [bgColor.r, bgColor.g, bgColor.b, 1], getBlob: (h) => store.getBlob(h) });
   const _mv = new THREE.Matrix4(), _mvi = new THREE.Matrix4(), _vwi = new THREE.Matrix4();
   let warnedMulti = false;
 
@@ -225,11 +225,11 @@ export function createView(canvas, store, opts = {}) {
     camera.updateMatrixWorld();
     _vwi.copy(camera.matrixWorld).invert();
     const entry = nodes.get(bo.id);
-    if (!entry) return;
-    const k = demoModelScale(bo.props);
+    const mp = mount.modelParams();
+    if (!entry || !mp) return;
     _mv.copy(entry.node.matrixWorld)
-       .multiply(new THREE.Matrix4().makeScale(k, k, k))
-       .multiply(new THREE.Matrix4().makeTranslation(0, 0, demoLift(bo.props)));
+       .multiply(new THREE.Matrix4().makeScale(mp.k, mp.k, mp.k))
+       .multiply(new THREE.Matrix4().makeTranslation(mp.off[0], mp.off[1], mp.off[2]));
     _mvi.copy(_mv).invert();
     mount.draw(camera.projectionMatrix.elements, _vwi.elements,
       camera.position.toArray(), _mv.elements, _mvi.elements,

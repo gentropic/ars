@@ -60,23 +60,37 @@ Layer *visibility* is local view state, not document state — hiding a layer on
 the desk must not hide it on the phone. (A future `stage` flag per layer can
 make visibility authorial and synced; not v1.)
 
-## Sync (stage 2)
+## Sync (stage 2 — REVISED 2026-08-10, shipped)
 
-`@gcu/sync` (auditable/ext/sync — vendored here with the usual MANIFEST
-hashes) over `trysteroChannel(room)`. The studio generates a room id and shows
-it as a QR; the phone scans with its native camera (GCU position: @gcu/qr is
-encode-only, scanning is the phone's camera). Sessions re-run on change with
-debounce; sync is state convergence, not messaging, so a rejoining phone just
-catches up. Presence rides as ephemeral messages outside the store (pose @
-~5 Hz, expiring), never merged into the document.
+**Direct trystero, not @gcu/sync.** With the studio as sole authority the wire
+degenerates to one-way replication + an ephemeral back-channel; a symmetric
+merge engine would be machinery without a payload. Four actions on a vendored
+trystero room (torrent signaling — no accounts, zero-cloud):
 
-The phone side lands in m3: a "join room" entry that receives the scene and
-hangs it under the datum root — objects are already in mat space, so placement
-is the identity. m3's gizmo renderer covers axes/box/label/mesh; condenser
-mounts per webxr SPEC §3.1 (stage 4).
+    scene  authority → room      whole document, on join + debounced change
+    need   viewer → authority    blob hashes the viewer lacks
+    blob   authority → viewer    bytes + {hash}, content-verified on save
+    pose   viewer → room         viewer pose in mat space, throttled, ephemeral
 
-Path B (magic-window) doubles as a no-phone preview: laptop webcam pointed at
-the mat on the desk.
+The whole-document rebroadcast is deliberately dumb: tiny (blobs ride
+separately by hash), and a phone that joins late or drops gets current truth
+by construction — no deltas, no catch-up protocol. The store underneath KEEPS
+its LWW+tombstone merge — that is what makes this dumb wire safe (idempotent
+rebroadcast) and what `@gcu/sync` slots into at **epoch 3**, when peers become
+symmetric authors (two phones annotating the shared frame) and convergence
+becomes the real problem. The store contract is already its store contract.
+
+The studio generates a room id and shows it as a QR (`@gcu/qr`, encode-only —
+scanning is the phone's native camera); presence renders as an expiring amber
+frustum per viewer in the studio viewport.
+
+**The first phone display is `web/viewer.html`** (mat-window): Path B webcam
+detection + `classGate` → `solveDatum` against the mat manifest (datum updates
+only with ≥2 gated references — the bench-magicwindow flip rule), the studio's
+own `objects.js` builders rendering the received scene in mat space over the
+camera. Works on any phone with a browser, including iOS. The WebXR m3
+"join room" mode (world-anchored via the datum anchor) is **stage 2b**,
+following the owed phone session.
 
 ## Distribution
 
@@ -89,14 +103,19 @@ dev shell IS the app.
 
 ## Stages
 
-1. **Editor core (this commit)** — layer tree, 3D viewport (vendored three),
-   true-scale mat from the §8 manifest (real 36h12 marker textures via the
-   vendored dictionary), primitives + labels + STL meshes, click-select +
-   drag-on-mat + inspector, LWW store shaped to the sync contract,
-   project save/load (JSON + blobs), localStorage autosave.
-2. **The wire** — vendor @gcu/sync + trystero; QR pairing; m3 "join room"
-   viewer mode; presence frustum in the studio.
-3. **More layers** — PLY, GLB (vendor three loaders), image quads.
+1. **Editor core (DONE 2026-08-10)** — layer tree, 3D viewport (vendored
+   three), true-scale mat from the §8 manifest (real 36h12 marker textures via
+   the vendored dictionary), primitives + labels + STL meshes + images,
+   click-select + drag-on-mat + inspector, LWW store shaped to the sync
+   contract, project save/load (JSON + blobs), localStorage autosave.
+2. **The wire (DONE 2026-08-10)** — vendored trystero (torrent subgraph) +
+   @gcu/qr; the four-action protocol; studio share button (QR + peers badge +
+   presence frustums); `web/viewer.html` mat-window phone viewer. Smoke: the
+   protocol over a fake room pair + the real viewer page rendering a received
+   scene. *Live-tracker + two-device test is manual, still owed.*
+   **2b** — m3 "join room" (world-anchored WebXR display), after the phone
+   session.
+3. **More layers** — PLY, GLB (vendor three loaders).
 4. **Condenser** — block-model layers via the §3.1 mount, both ends
    (needs the `clear:false` upstream debt for multi-mount frames).
 5. **Build** — @gcu/build single-file `studio.html`, deployed on Pages next

@@ -28,6 +28,34 @@
         { "path": "js-aruco2/LICENSE.txt", "bytes": 11679 }
       ],
       "notes": "ARUCO_MIP_36h12 (the spec's mandated dictionary) is inline in aruco.js and is its default — the separate dictionaries/*.js are NOT vendored. posit1 = original POSIT (DeMenthon, what the upstream sample uses); posit2 = coplanar POSIT (better for a single flat marker). Both return the dual-candidate POS.Pose (best + alternative) the §5.2 disambiguation consumes. Loaded as classic scripts (globals AR/CV/POS/SVD); our ESM detector wrapper reads those globals."
+    },
+    {
+      "name": "trystero",
+      "version": "0.21.8",
+      "license": "MIT",
+      "homepage": "https://github.com/dmotz/trystero",
+      "source": "https://registry.npmjs.org/trystero/-/trystero-0.21.8.tgz (src/, torrent-strategy subgraph)",
+      "files": [
+        { "path": "trystero/torrent.js", "bytes": 4544, "sha256": "92814eed0cf17438e1d2c384ed160fe6f79acd21fb21b025a0aae873d9a04909" },
+        { "path": "trystero/strategy.js", "bytes": 7066, "sha256": "6e47562023111cf730e2cbdd820be76415befb314b2aa5b61329fb0d6c2a785c" },
+        { "path": "trystero/room.js", "bytes": 10062, "sha256": "a8af417ba34a830368c25cb9b33dc5e11af565831f733906c1d900611acb61af" },
+        { "path": "trystero/peer.js", "bytes": 4958, "sha256": "a37262554ca2e63ae1de1c97bce2e2ed9e20fc5755402d6ea3c7285335f242b9" },
+        { "path": "trystero/crypto.js", "bytes": 1488, "sha256": "3a894679a952480e6af75174558e175f56eaffadc9d87b32068936eb18957379" },
+        { "path": "trystero/utils.js", "bytes": 2619, "sha256": "8dccfd0235e053bc7b8bd48df1b619be600b5cefa58360e21503230c57564d44" },
+        { "path": "trystero/LICENSE", "bytes": 1060, "sha256": "bbf91fd979faac0def9551c570e2e9f92b4e02d22f38ca5d98860b6284e1ea25" }
+      ],
+      "notes": "Serverless WebRTC rooms (studio↔viewer sync, DESIGN.md stage 2). ONLY the torrent-strategy subgraph is vendored (BitTorrent-tracker signaling — no accounts, matches the zero-cloud stance): torrent.js + its transitive relative imports, zero bare specifiers. The nostr/mqtt/firebase/supabase/ipfs strategies need external deps and are NOT vendored. 0.21.8 is the last release shipping self-contained ESM sources (0.22+ ships bundled dist; 0.25+ splits into @trystero-p2p/* scoped packages with a shared core — revisit on next bump). Actions carry JSON or binary with metadata; payloads are chunked automatically."
+    },
+    {
+      "name": "@gcu/qr",
+      "version": "0.1.0",
+      "license": "MIT (vendors Kazuhiko Arase's qrcode-generator 2.0.4, MIT)",
+      "homepage": "https://github.com/gentropic (auditable/ext/qr)",
+      "source": "auditable monorepo ext/qr/index.js (the @gcu/build bundle)",
+      "files": [
+        { "path": "gcu-qr/index.js", "bytes": 56344, "sha256": "dcd93f9a5d630d1ef29bb1f8802c483da2cb6d49fa4c394c372de5e476688549" }
+      ],
+      "notes": "QR encode-only (GCU position: scanning is the phone's native camera). Used by the studio share dialog to display the room join URL. ESM: toMatrix / toSVG / toDataURL."
     }
   ]
 }

@@ -28,6 +28,33 @@ export function createView(canvas, store, opts = {}) {
   const content = new THREE.Group();           // scene objects live here
   scene.add(content);
 
+  // ── presence: one frustum glyph per connected viewer, expiring quietly ──
+  const presence = new Map();                  // peerId → { node, at }
+  const presenceGroup = new THREE.Group();
+  scene.add(presenceGroup);
+  function frustumGlyph() {
+    const w = 0.036, h = 0.024, d = 0.05;      // small camera pyramid, apex at pose
+    const pts = [];
+    const c = [[-w, -h, -d], [w, -h, -d], [w, h, -d], [-w, h, -d]];
+    for (const p of c) pts.push(new THREE.Vector3(0, 0, 0), new THREE.Vector3(...p));
+    for (let i = 0; i < 4; i++) pts.push(new THREE.Vector3(...c[i]), new THREE.Vector3(...c[(i + 1) % 4]));
+    const node = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: 0xe8b04b }));
+    node.matrixAutoUpdate = false;
+    return node;
+  }
+  function setPresence(peerId, matrix16) {
+    let p = presence.get(peerId);
+    if (!p) { p = { node: frustumGlyph(), at: 0 }; presence.set(peerId, p); presenceGroup.add(p.node); }
+    p.node.matrix.fromArray(matrix16);
+    p.at = performance.now();
+  }
+  function dropPresence(peerId) {
+    const p = presence.get(peerId);
+    if (p) { presenceGroup.remove(p.node); presence.delete(peerId); }
+  }
+
   // ── z-up orbit ──────────────────────────────────────────────────────────
   const orbit = { theta: -Math.PI / 3, phi: 0.9, dist: 0.55, target: new THREE.Vector3(0, 0, 0) };
   function applyOrbit() {
@@ -169,6 +196,8 @@ export function createView(canvas, store, opts = {}) {
     const cur = selected && nodes.get(selected);
     selBox.visible = !!cur;
     if (cur) selBox.box.setFromObject(cur.node);
+    const now = performance.now();
+    for (const p of presence.values()) p.node.visible = now - p.at < 2500;
     renderer.render(scene, camera);
   }
 
@@ -178,6 +207,7 @@ export function createView(canvas, store, opts = {}) {
     selectedId: () => selected,
     setVisibility(fn) { localVis = fn; reconcile(); },
     addStatic(node) { scene.add(node); },
+    setPresence, dropPresence,
     onSelect: null,
   };
 

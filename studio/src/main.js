@@ -4,6 +4,7 @@ import { createStore } from './store.js';
 import { createView } from './view.js';
 import { loadMatManifest, buildMat } from './mat.js';
 import { initUI } from './ui.js';
+import { createSync, roomCode, APP_ID } from './sync.js';
 
 const AUTOSAVE_KEY = 'ars.studio.autosave';
 
@@ -46,9 +47,37 @@ async function boot() {
     clear: document.getElementById('clear'),
   });
 
+  // ── share: create a room, show the QR, stream the scene (stage 2) ──────
+  // trystero + qr load lazily so opening the studio never touches the network.
+  let sync = null;
+  document.getElementById('share').onclick = async () => {
+    const overlay = document.getElementById('share-overlay');
+    if (!sync) {
+      const [{ joinRoom }, qr] = await Promise.all([
+        import('../../vendor/trystero/torrent.js'),
+        import('../../vendor/gcu-qr/index.js'),
+      ]);
+      const code = roomCode();
+      const url = new URL('../web/viewer.html#r=' + code, location.href).href;
+      const room = joinRoom({ appId: APP_ID }, code);
+      sync = createSync(store, room, {
+        role: 'authority',
+        onPose: (peerId, pose) => view.setPresence(peerId, pose),
+        onLeave: (peerId) => view.dropPresence(peerId),
+        onPeers: (n) => { document.getElementById('peers').textContent = n ? '◈ ' + n : ''; },
+      });
+      document.getElementById('share-qr').src = qr.toDataURL(url, { scale: 8 });
+      document.getElementById('share-code').textContent = code;
+      window.__studioSync = { sync, code, url };
+    }
+    overlay.classList.add('open');
+  };
+  document.getElementById('share-close').onclick = () =>
+    document.getElementById('share-overlay').classList.remove('open');
+
   document.getElementById('status').textContent =
     'mat space · mm-true · drag objects on the sheet · autosaving locally';
-  window.__studio = { store, view };            // harness handle
+  window.__studio = { store, view, createSync };  // harness handle
 }
 
 boot().catch((e) => {

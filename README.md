@@ -87,11 +87,15 @@ Done:
   the embed drifts from `src/`. Four e2e scenarios green.
   *Phone re-verification of the three m3 upgrades still owed (one session).*
 
-- **Studio, stage 1** (`studio/`) — the desktop mat-space editor: layer tree,
-  3D view with the reference mat at true scale (real 36h12 textures), primitives /
-  labels / STL / images, an LWW scene store already shaped to `@gcu/sync`'s
-  contract. `studio/DESIGN.md` is the plan: next stages wire Trystero sync to the
-  phone (m3 "join room"), then condenser layers. Smoke-tested headless.
+- **Studio, stages 1–2** (`studio/` + `web/viewer.html`) — the desktop mat-space
+  editor (layer tree, 3D view with the reference mat at true scale, primitives /
+  labels / STL / images, LWW scene store) now **synced to phones**: press share,
+  scan the QR, and the viewer joins a serverless WebRTC room (vendored trystero),
+  receives the scene, localizes on the printed mat, and renders it over the
+  camera — the phone's pose returns as a presence frustum on the desk.
+  `studio/DESIGN.md` is the plan; next: m3 "join room" (WebXR), condenser
+  layers, single-file build. Smoke-tested headless (trackerless fake rooms);
+  the live two-device pass is a manual test still owed.
 
 Next:
 

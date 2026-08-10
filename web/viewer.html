@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>ars — viewer</title>
+<!-- js-aruco2 classic scripts FIRST (AR / CV / POS / SVD globals), then ESM -->
+<script src="../vendor/js-aruco2/cv.js"></script>
+<script src="../vendor/js-aruco2/aruco.js"></script>
+<script src="../vendor/js-aruco2/svd.js"></script>
+<script src="../vendor/js-aruco2/posit1.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
+               font: 13px/1.4 ui-monospace, monospace; color: #d8dee9; }
+  #stage { position: fixed; inset: 0; }
+  #video, #gl { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #gl { pointer-events: none; }
+  #hud { position: fixed; left: 8px; top: 8px; z-index: 10; background: rgba(20,24,30,.78);
+         padding: 8px 10px; border-radius: 6px; max-width: 80vw; white-space: pre-wrap; }
+  #hud b { color: #e8b04b; }
+  #start { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 20;
+           padding: 14px 20px; font: 16px system-ui; background: #e8b04b; color: #14181e;
+           border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="gl"></canvas>
+</div>
+<div id="hud"><b>ars viewer</b> — waiting…</div>
+<button id="start">start viewer</button>
+
+<script type="module">
+// The mat-window phone viewer (DESIGN.md stage 2): joins the studio's room,
+// receives the scene, localizes on the printed mat (Path B detection + the
+// core's classGate → solveDatum), and renders the scene in mat space over the
+// camera. The magic-window rule from bench-magicwindow holds: the datum only
+// updates with ≥2 gated references in frame (a lone marker's POSIT ambiguity
+// flips near-frontal; the constellation disambiguates structurally).
+import * as THREE from '../vendor/three/three.module.min.js';
+import { createDetector, detect, markerPose } from './detect.js';
+import { classGate, solveDatum, mat4 } from '../src/main.js';
+import { createStore } from '../studio/src/store.js';
+import { build, RENDERABLE } from '../studio/src/objects.js';
+import { createSync, APP_ID } from '../studio/src/sync.js';
+
+const $ = (s) => document.querySelector(s);
+const hud = $('#hud'), video = $('#video'), glCanvas = $('#gl');
+const work = document.createElement('canvas');
+const wctx = work.getContext('2d', { willReadFrequently: true });
+
+const store = createStore();
+let detector, renderer, scene, camera, content;
+let sync = null, running = false, testMode = false;
+let datumAt = 0, roomCode = null, refsSeen = 0;
+const camInMat = new THREE.Matrix4();
+
+// mat layout (the same file the PDF and the studio use)
+const MAT = await (await fetch('../webxr/assets/ars-mat-manifest.json')).json();
+const MAT_IDS = MAT.variants.ARUCO_MIP_36h12.ids;
+const OVERRIDES = Object.fromEntries(MAT_IDS.map((id) => [id, 'reference']));
+const MAT_POSE = Object.fromEntries(MAT_IDS.map((id) => {
+  const t = MAT.layout[String(id)].t;
+  return [id, mat4.fromRT([1, 0, 0, 0, 1, 0, 0, 0, 1], t)];
+}));
+
+function initThree() {
+  renderer = new THREE.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true });
+  renderer.setClearColor(0x000000, 0);
+  scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(1, 2, 3);
+  scene.add(dir);
+  camera = new THREE.PerspectiveCamera(60, 1, 0.001, 100);
+  content = new THREE.Group();                 // the scene document, in mat space
+  content.matrixAutoUpdate = false;            // matrix = T (mat → camera)
+  content.visible = false;
+  scene.add(content);
+}
+
+// store → content reconciliation (same discipline as the studio view)
+const nodes = new Map();
+function reconcile() {
+  const live = new Set();
+  for (const obj of store.all()) {
+    if (!RENDERABLE.has(obj.kind)) continue;
+    live.add(obj.id);
+    const cur = nodes.get(obj.id);
+    if (!cur || cur.stamp !== obj.stamp) {
+      if (cur) content.remove(cur.node);
+      const node = build(obj, store);
+      nodes.set(obj.id, { stamp: obj.stamp, node });
+      content.add(node);
+    }
+  }
+  for (const [id, cur] of nodes)
+    if (!live.has(id)) { content.remove(cur.node); nodes.delete(id); }
+}
+store.onChange(reconcile);
+
+function joinWith(room) {
+  sync = createSync(store, room, {
+    role: 'viewer',
+    onPeers: () => {},
+  });
+  return sync;
+}
+
+function status() {
+  hud.innerHTML = `<b>ars viewer</b> room ${roomCode || '—'} · ` +
+    `${store.all().filter((o) => RENDERABLE.has(o.kind)).length} object(s)\n` +
+    `${refsSeen} mat marker(s) in view` +
+    (content.visible ? ' · localized' : ' · show ≥2 mat markers to localize');
+}
+
+function loop() {
+  if (!running) return;
+  requestAnimationFrame(loop);
+  if (video.readyState < 2) return;
+  const W = video.videoWidth, H = video.videoHeight;
+  if (!W || !H) return;
+  if (work.width !== W) { work.width = W; work.height = H; }
+
+  // GL buffer = detection frame, so object-fit:cover crops both identically
+  const focalPx = W;
+  if (renderer.domElement.width !== W) renderer.setSize(W, H, false);
+  camera.aspect = W / H;
+  camera.fov = 2 * Math.atan((H / 2) / focalPx) * 180 / Math.PI;
+  camera.updateProjectionMatrix();
+
+  wctx.drawImage(video, 0, 0, W, H);
+  const markers = detect(detector, wctx.getImageData(0, 0, W, H));
+
+  const obs = [];
+  for (const m of markers) {
+    if (!(m.id in MAT_POSE)) continue;
+    const p = markerPose(m.corners, { sizeMeters: MAT.markerSize, focalPx, width: W, height: H });
+    if (p) obs.push({ id: m.id, matPose: MAT_POSE[m.id], observedPose: p.matrix, size: MAT.markerSize });
+  }
+  const refs = classGate(obs, { overrides: OVERRIDES });
+  refsSeen = refs.length;
+  if (refs.length >= 2) {
+    const datum = solveDatum(refs);
+    if (datum.transform) {
+      content.matrix.fromArray(Array.from(datum.transform));
+      content.visible = true;
+      datumAt = performance.now();
+      camInMat.copy(content.matrix).invert();  // viewer pose in mat space
+      if (sync) sync.sendPose(camInMat.toArray());
+    }
+  }
+  if (performance.now() - datumAt > 1500) content.visible = false;
+
+  renderer.render(scene, camera);
+  status();
+}
+
+async function start() {
+  $('#start').style.display = 'none';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch (e) {
+    hud.innerHTML = '<b>camera error:</b> ' + e.message;
+    return;
+  }
+  detector = createDetector();
+  if (!testMode && roomCode) {
+    const { joinRoom } = await import('../vendor/trystero/torrent.js');
+    joinWith(joinRoom({ appId: APP_ID }, roomCode));
+  }
+  running = true;
+  requestAnimationFrame(loop);
+}
+
+// boot
+{
+  const h = new URLSearchParams(location.hash.slice(1));
+  roomCode = h.get('r');
+  testMode = h.has('test');
+  initThree();
+  if (testMode) {
+    // harness hook: no camera, no trackers — the smoke injects a fake room
+    // and drives the datum directly
+    $('#start').style.display = 'none';
+    window.__viewer = {
+      store, content, reconcile, joinWith,
+      setDatum(m16) {
+        content.matrix.fromArray(m16);
+        content.visible = true;
+        datumAt = Infinity;
+      },
+      render() { renderer.setSize(innerWidth, innerHeight, false);
+                 camera.aspect = innerWidth / innerHeight;
+                 camera.updateProjectionMatrix();
+                 renderer.render(scene, camera); },
+    };
+    hud.innerHTML = '<b>ars viewer</b> — test mode';
+  } else {
+    $('#start').addEventListener('click', start);
+    if (!roomCode) hud.innerHTML = '<b>ars viewer</b> — no room in URL (open from the studio QR); ' +
+      'camera-only mode: the mat still localizes, the scene stays empty';
+    else hud.innerHTML = '<b>ars viewer</b> — room ' + roomCode + ' · tap start';
+  }
+}
+</script>
+</body>
+</html>

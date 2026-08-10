@@ -52,6 +52,17 @@
 
   #status { padding: 5px 10px; background: var(--panel); border-top: 1px solid var(--line);
             color: var(--dim); }
+  #peers { color: var(--amber); }
+
+  #share-overlay { position: fixed; inset: 0; background: rgba(10,13,17,.8); z-index: 50;
+                   display: none; align-items: center; justify-content: center; }
+  #share-overlay.open { display: flex; }
+  #share-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+                padding: 22px 26px; text-align: center; }
+  #share-card img { width: 240px; height: 240px; image-rendering: pixelated;
+                    background: #fff; border-radius: 4px; }
+  #share-card .code { font-size: 20px; letter-spacing: .2em; color: var(--amber); margin: 10px 0 4px; }
+  #share-card .hint { color: var(--dim); max-width: 260px; margin: 0 auto 12px; }
 </style>
 </head>
 <body>
@@ -69,6 +80,9 @@
     <button id="save">save</button>
     <button id="load">load</button>
     <button id="clear">clear</button>
+    <span class="sep"></span>
+    <button id="share">share</button>
+    <span id="peers"></span>
   </div>
   <div id="main">
     <div id="left"><h3>layers</h3><div id="tree"></div></div>
@@ -77,6 +91,13 @@
   </div>
   <div id="status">loading…</div>
 </div>
+<div id="share-overlay"><div id="share-card">
+  <img id="share-qr" alt="room QR">
+  <div class="code" id="share-code"></div>
+  <div class="hint">scan with the phone's camera — the viewer opens in the browser and
+    localizes on the printed mat</div>
+  <button id="share-close">close</button>
+</div></div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

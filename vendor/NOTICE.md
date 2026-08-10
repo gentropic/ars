@@ -26,3 +26,17 @@ is Mellado's original MIT implementation, so the tree is permissively licensed.
 
 The `ARUCO_MIP_36h12` codes are baked into `aruco.js` (its default dictionary), so
 none of the upstream `dictionaries/*.js` files are vendored.
+
+## trystero — MIT
+
+Serverless WebRTC rooms for the studio ↔ viewer sync (DESIGN.md stage 2). Only
+the torrent-signaling strategy subgraph is vendored (`torrent.js`, `strategy.js`,
+`room.js`, `peer.js`, `crypto.js`, `utils.js`) — self-contained ESM, pinned
+**0.21.8**, no external dependencies. © Dan Motzenbecker.
+https://github.com/dmotz/trystero
+
+## @gcu/qr — MIT
+
+QR encoding (encode-only) for the studio's room-join display; the single
+`index.js` @gcu/build bundle from the auditable monorepo, which itself vendors
+Kazuhiko Arase's `qrcode-generator` 2.0.4 (MIT). © GCU / Kazuhiko Arase.

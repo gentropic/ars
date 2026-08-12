@@ -68,7 +68,10 @@ async function boot() {
   document.getElementById('share-close').onclick = () =>
     document.getElementById('share-overlay').classList.remove('open');
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') document.getElementById('share-overlay').classList.remove('open');
+    if (e.key === 'Escape') {
+      document.getElementById('share-overlay').classList.remove('open');
+      document.getElementById('help-overlay').classList.remove('open');
+    }
   });
 
   window.__studio = { store, view, createSync };  // harness handle

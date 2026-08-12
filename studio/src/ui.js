@@ -227,7 +227,18 @@ export function initUI(store, view, els) {
       { label: 'zoom to selection', disabled: !view.selectedId(),
         action: () => { const o = store.get(view.selectedId()); if (o) view.lookAt(o.t, 0.25); } },
     ] },
+    { label: 'help', items: () => [
+      { label: 'quick start & keys…', shortcut: '?',
+        action: () => document.getElementById('help-overlay').classList.add('open') },
+      '---',
+      { label: 'printable mat (pdf) ↗', action: () => window.open('../webxr/assets/ars-mat-a4.pdf', '_blank') },
+      { label: 'marker printer ↗', action: () => window.open('../web/markers.html', '_blank') },
+      { label: 'phone viewer ↗', action: () => window.open('../web/viewer.html', '_blank') },
+      { label: 'project on github ↗', action: () => window.open('https://github.com/gentropic/ars', '_blank') },
+    ] },
   ]);
+  document.getElementById('help-close').onclick = () =>
+    document.getElementById('help-overlay').classList.remove('open');
   bar.on('action', (a) => { if (typeof a === 'function') a(); });
 
   // ── the tree ────────────────────────────────────────────────────────────
@@ -424,6 +435,7 @@ export function initUI(store, view, els) {
     else if (e.key === 'Delete' && obj) { store.remove(id); view.select(null); }
     else if (e.key === 'h' && obj) toggleHidden(obj);
     else if (e.key === 'F2' && obj) { e.preventDefault(); rename(obj); }
+    else if (e.key === '?') document.getElementById('help-overlay').classList.add('open');
     else if (e.key === 'Escape') view.select(null);
     else if (obj && (e.key.startsWith('Arrow') || e.key === 'PageUp' || e.key === 'PageDown')) {
       // nudge on the mm grid: arrows in the mat plane, PgUp/PgDn in z;

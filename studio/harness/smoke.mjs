@@ -416,6 +416,21 @@ const chk = (name, cond, extra) => {
   chk('ply mesh loads through the vendored loader', meshKinds.ply === true, JSON.stringify(meshKinds));
   chk('glb mesh loads through the vendored loader', meshKinds.glb === true, JSON.stringify(meshKinds));
 
+  // built-in help: menubar → overlay with the quick start + mat link; Esc closes
+  await page.locator('.gcu-menubar-trigger').filter({ hasText: /^help$/ }).click();
+  await page.locator('.gcu-menu-item').filter({ hasText: /quick start/ }).click();
+  const help = await page.evaluate(`(() => {
+    const ov = document.getElementById('help-overlay');
+    return { open: ov.classList.contains('open'),
+             hasMat: !!ov.querySelector('a[href*="ars-mat-a4.pdf"]'),
+             hasKeys: ov.textContent.includes('Ctrl+Z') };
+  })()`);
+  await page.keyboard.press('Escape');
+  const helpClosed = await page.evaluate(
+    `!document.getElementById('help-overlay').classList.contains('open')`);
+  chk('help overlay opens with mat link + keys, Esc closes',
+    help.open && help.hasMat && help.hasKeys && helpClosed, JSON.stringify(help));
+
   chk('no page errors (end)', errors.length === 0, errors.join('; '));
 
   await browser.close();

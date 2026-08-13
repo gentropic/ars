@@ -170,7 +170,9 @@ dev shell IS the app.
    greys via `setLayerRamp`), grade **cutoff** (isolate mask), edges,
    footprint. Gridded models only for now (sub-blocked/irregular → clear
    error; the centroids-as-points fallback is a later slice, as are LAS
-   point clouds and multi-mount once condenser grows `clear:false` +
+   point clouds and multi-mount once condenser grows `clear:false`
+   (FILED: gentropic/auditable#3) + render-target accumulation
+   (FILED: gentropic/auditable#4) —
    render-target APIs).
 5. **Build — DROPPED (2026-08-10, Arthur's call).** The single-file
    discipline earns its keep where the file and the SEAL are one promise

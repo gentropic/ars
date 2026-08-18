@@ -5,6 +5,9 @@ node_modules/
 dist/
 coverage/
 
+# local notes (submissions, drafts — not part of the project)
+notes/
+
 # agent working files (local only, not part of the project)
 CLAUDE.md
 CLAUDE.local.md
